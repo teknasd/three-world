@@ -109,153 +109,7 @@ directionalLight.shadow.camera.top = 2000;
 directionalLight.shadow.camera.bottom = -2000;
 scene.add(directionalLight);
 
-// Cube
-const cubeGeometry = new THREE.BoxGeometry(1, 1, 1);
-const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0xff5722 });
-const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
-cube.position.set(-2, 0, 0);
-cube.userData = {};
-//scene.add(cube);  // removed object visuals
-
-// Sphere
-const sphereGeometry = new THREE.SphereGeometry(0.75, 32, 32);
-const sphereMaterial = new THREE.MeshStandardMaterial({ color: 0x2196f3 });
-const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-sphere.position.set(2, 0, 0);
-sphere.userData = {};
-//scene.add(sphere);
-
-// Torus
-const torusGeometry = new THREE.TorusGeometry(0.7, 0.2, 16, 100);
-const torusMaterial = new THREE.MeshStandardMaterial({ color: 0x9c27b0 });
-const torus = new THREE.Mesh(torusGeometry, torusMaterial);
-torus.position.set(0, 1.5, 0);
-torus.userData = {};
-//scene.add(torus);
-
-// Cone
-const coneGeometry = new THREE.ConeGeometry(0.6, 1.5, 32);
-const coneMaterial = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
-const cone = new THREE.Mesh(coneGeometry, coneMaterial);
-cone.position.set(0, -1.5, 0);
-cone.userData = {};
-//scene.add(cone);
-
-// Icosahedron
-const icoGeometry = new THREE.IcosahedronGeometry(0.8, 0);
-const icoMaterial = new THREE.MeshStandardMaterial({ color: 0xffc107 });
-const ico = new THREE.Mesh(icoGeometry, icoMaterial);
-ico.position.set(0, 0, -2);
-ico.userData = {};
-//scene.add(ico);
-
-// Group all animating shapes and give them an initial z offset farther from camera
-const shapes = []; // Shapes system disabled (we use terrain only)
-
-const SPAWN_DEPTH = -20; // Legacy: how far back shapes would spawn
-
-// Ensure originals have base positions recorded and start at spawn depth
-shapes.forEach((s) => {
-  s.userData = {
-    ...(s.userData || {}),
-    baseX: s.position.x,
-    baseY: s.position.y,
-  };
-  if (!s.geometry.boundingSphere) s.geometry.computeBoundingSphere();
-  s.userData.radius = s.geometry.boundingSphere.radius; // For collision spacing
-  s.position.z = SPAWN_DEPTH;
-});
-
-// ----- Random shape generation helpers -----
-const MAX_SHAPES = Infinity; // Shapes cap (unused; terrain only)
-const MIN_DIST = 1.5; // Min spacing between spawned shapes (unused)
-
-// Utility: completely dispose of a mesh’s resources to avoid GPU memory leaks
-function disposeMesh(mesh) {
-  scene.remove(mesh);
-  if (mesh.geometry) mesh.geometry.dispose();
-  if (mesh.material) {
-    if (Array.isArray(mesh.material)) {
-      mesh.material.forEach((m) => m && m.dispose());
-    } else {
-      mesh.material.dispose();
-    }
-  }
-}
-
-function assignRadius(mesh) {
-  if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
-  mesh.userData.radius = mesh.geometry.boundingSphere.radius;
-}
-
-function overlaps(mesh) {
-  for (const other of shapes) {
-    // Only consider shapes that are roughly at spawn depth to avoid needless checks
-    if (Math.abs(other.position.z - SPAWN_DEPTH) > 1) continue;
-    const dx = other.position.x - mesh.position.x;
-    const dy = other.position.y - mesh.position.y;
-    const dz = other.position.z - mesh.position.z; // likely ~0
-
-    const rSum = (other.userData.radius || 0.5) + (mesh.userData.radius || 0.5) + 0.1; // Combined radii + margin
-    if (dx * dx + dy * dy + dz * dz < rSum * rSum) {
-      return true; // overlaps
-    }
-  }
-  return false;
-}
-
-function rand(min, max) {
-  return Math.random() * (max - min) + min; // Uniform random in [min,max)
-}
-
-function randomColor() {
-  return Math.floor(Math.random() * 0xffffff); // Random RGB color
-}
-
-function createRandomShape() {
-  const typeIndex = Math.floor(Math.random() * 5); // 0-4 type
-  let geometry;
-  switch (typeIndex) {
-    case 0:
-      geometry = new THREE.BoxGeometry(1, 1, 1);
-      break;
-    case 1:
-      geometry = new THREE.SphereGeometry(0.75, 32, 32);
-      break;
-    case 2:
-      geometry = new THREE.TorusGeometry(0.7, 0.2, 16, 100);
-      break;
-    case 3:
-      geometry = new THREE.ConeGeometry(0.6, 1.5, 32);
-      break;
-    default:
-      geometry = new THREE.IcosahedronGeometry(0.8, 0);
-  }
-
-  const material = new THREE.MeshStandardMaterial({ color: randomColor() });
-  const mesh = new THREE.Mesh(geometry, material);
-
-  // After creation compute radius
-  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-  mesh.userData.radius = geometry.boundingSphere.radius;
-
-  // Random lateral placement
-  const baseX = rand(-4, 4);
-  const baseY = rand(-2, 2);
-  mesh.position.set(baseX, baseY, SPAWN_DEPTH);
-
-  mesh.userData = {
-    baseX,
-    baseY
-  };
-
-  return mesh;
-}
-
 const CAMERA_SPEED = 10; // Auto forward speed (units/sec) when unpaused
-const DESPAWN_DISTANCE = 10; // Legacy: despawn distance for shapes behind camera (unused)
-const SPAWN_AHEAD_MIN = 5; // Legacy: spawn range min ahead (unused)
-const SPAWN_AHEAD_MAX = 20; // Legacy: spawn range max ahead (unused)
 // (keep MAX_SHAPES and MIN_DIST as is)
 
 // ===== Infinite Ground Plane =====
@@ -266,17 +120,7 @@ const planeSegments = new Map(); // Segment index -> Mesh
 
 // ===== Procedural surface using Perlin-like ImprovedNoise =====
 const noise = new ImprovedNoise();
-const NOISE_SCALE_X = 0.08;  // Base noise frequency across X (lower = larger features)
-const NOISE_SCALE_Z = 0.08;  // Base noise frequency across Z
-const NOISE_HEIGHT = 6.0;    // Base noise amplitude used within biome ranges
-// Mountains (legacy uplift params kept for reference)
-const MOUNTAIN_SCALE_X = 0.02; // Legacy ridge scale X
-const MOUNTAIN_SCALE_Z = 0.02; // Legacy ridge scale Z
-const MOUNTAIN_THRESHOLD = 0.90; // Legacy ridge threshold
-const MOUNTAIN_BAND = 0.5;     // Legacy ridge smoothing band
-const MOUNTAIN_HEIGHT = 30.0;   // Legacy uplift amount
-const MOUNTAIN_SHARP_EXTRA = 8; // Legacy sharp cap height
-const MOUNTAIN_SHARPNESS = 3.0; // Legacy sharpness exponent
+
 
 // Biome helpers
 const SEA_LEVEL = 20.0; // New sea level at 20
@@ -315,8 +159,6 @@ const BIOME_PERIOD = 2000; // (unused) macro cycle length along Z
 const BIOME_BLEND = 0.05;  // Blend width for band edges
 
 // Biome colors
-const WATER_DEEP = new THREE.Color(0x0b3954); // Deep water color (legacy)
-const WATER_SHALLOW = new THREE.Color(0x1f7a8c); // Shallow water color (legacy)
 const WATER_SOLID = new THREE.Color(0x1f7a8c); // Solid water color for cheap rendering
 const DESERT_COLOR = new THREE.Color(0xC2B280); // Sand color
 const GRASS_COLOR = new THREE.Color(0x6aa84f); // Grass color
