@@ -10,7 +10,8 @@ terrainTexture.repeat.set(100, 5);
 terrainTexture.colorSpace = THREE.SRGBColorSpace;
 // Scene
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x20232a);
+scene.background = new THREE.Color(0x9fc4e7);
+scene.fog = new THREE.Fog(scene.background, 80, 700);
 
 // Clock for delta timing (used for uniform forward motion)
 const clock = new THREE.Clock();
@@ -63,11 +64,12 @@ controls.target.set(0, 0, camera.position.z - 10);
 controls.update();
 
 // Lights
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+const ambientLight = new THREE.AmbientLight(0xfff3e0, 0.4);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-directionalLight.position.set(5, 5, 5);
+const directionalLight = new THREE.DirectionalLight(0xffe0b2, 1.0);
+directionalLight.position.set(10, 15, 8);
+directionalLight.castShadow = false;
 scene.add(directionalLight);
 
 // Cube
@@ -213,7 +215,7 @@ function createRandomShape() {
   return mesh;
 }
 
-const CAMERA_SPEED = 4; // units per second camera flies forward (toward -Z)
+const CAMERA_SPEED = 10; // units per second camera flies forward (toward -Z)
 const DESPAWN_DISTANCE = 10; // how far behind the camera a shape is removed
 const SPAWN_AHEAD_MIN = 5; // spawn closer to camera
 const SPAWN_AHEAD_MAX = 20; // still some depth variety but nearer
@@ -242,10 +244,18 @@ const MOUNTAIN_SHARPNESS = 3.0; // exponent for rare sharpness
 // Biome helpers
 const SEA_LEVEL = 0.0;
 const SNOW_HEIGHT = 10.0; // above this -> snow
-const MOISTURE_SCALE = 0.03; // lower = large swaths of biomes
 const PLATEAU_SCALE = 0.05;
 const PLATEAU_THRESHOLD = 0.6;
 const PLATEAU_STEP = 1.5; // quantization step for plateaus
+// 2D biome fields (independent of travel direction)
+const HEAT_SCALE = 0.002;
+const MOISTURE_FIELD_SCALE = 0.002;
+const OCEAN_SCALE = 0.0015;
+const OCEAN_THRESHOLD = 0.62;
+const OCEAN_BAND = 0.06;
+// Ordered biome sequence along travel (Z): desert -> plateau -> forest -> mountains
+const BIOME_PERIOD = 2000; // world units over which a full cycle occurs
+const BIOME_BLEND = 0.05;  // fractional blend width at band edges
 
 // Biome colors
 const WATER_DEEP = new THREE.Color(0x0b3954);
@@ -254,7 +264,23 @@ const DESERT_COLOR = new THREE.Color(0xC2B280);
 const GRASS_COLOR = new THREE.Color(0x6aa84f);
 const FOREST_COLOR = new THREE.Color(0x2e7d32);
 const PLATEAU_COLOR = new THREE.Color(0x8d6e63);
+const ROCK_COLOR = new THREE.Color(0x7d7d7d);
 const SNOW_COLOR = new THREE.Color(0xffffff);
+const ICE_COLOR = new THREE.Color(0xcfe9ff);
+const SHORE_RANGE = 6.0; // units over which land eases into sea level
+
+// Seeded randomness for terrain offsets (stable across reloads; can override via ?seed=...)
+function xmur3(str){for(var i=0,h=1779033703^str.length;i<str.length;i++)h=Math.imul(h^str.charCodeAt(i),3432918353),h=h<<13|h>>>19;return function(){h=Math.imul(h^h>>>16,2246822507),h=Math.imul(h^h>>>13,3266489909);return(h^h>>>16)>>>0}}
+function sfc32(a,b,c,d){return function(){a>>>0;b>>>0;c>>>0;d>>>0;var t=(a+b|0)+d|0;d=d+1|0;a=b^b>>>9;b=c+(c<<3)|0;c=(c<<21|c>>>11);c=c+t|0;return((t>>>0)/4294967296)}}
+const _params = new URLSearchParams(window.location.search);
+let _seedStr = _params.get('seed') || window.localStorage.getItem('terrain_seed');
+if(!_seedStr){ _seedStr = String(Math.floor(Math.random()*1e9)); window.localStorage.setItem('terrain_seed', _seedStr); }
+const _h = xmur3(_seedStr); const _rng = sfc32(_h(), _h(), _h(), _h());
+const HEIGHT_OFF_X = _rng()*10000, HEIGHT_OFF_Z = _rng()*10000;
+const HEAT_OFF_X = _rng()*10000, HEAT_OFF_Z = _rng()*10000;
+const MOIST_OFF_X = _rng()*10000, MOIST_OFF_Z = _rng()*10000;
+const OCEAN_OFF_X = _rng()*10000, OCEAN_OFF_Z = _rng()*10000;
+const PLATEAU_OFF_X = _rng()*10000, PLATEAU_OFF_Z = _rng()*10000;
 
 // Deform a plane geometry in-place based on world XZ and an offset
 function deformPlane(geometry, worldZOffset) {
@@ -266,55 +292,100 @@ function deformPlane(geometry, worldZOffset) {
     geometry.setAttribute('color', colorAttr);
   }
   const color = new THREE.Color();
+  function bandWeight(p, a0, a1) {
+    // returns smooth weight for p within [a0,a1] with soft edges
+    const w = BIOME_BLEND;
+    const rise = THREE.MathUtils.smoothstep(p, a0 - w, a0 + w);
+    const fall = 1.0 - THREE.MathUtils.smoothstep(p, a1 - w, a1 + w);
+    return Math.max(0.0, Math.min(1.0, rise * fall));
+  }
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i) + worldZOffset;
-    // Base terrain
-    let hBase = noise.noise(x * NOISE_SCALE_X, 0, z * NOISE_SCALE_Z) * NOISE_HEIGHT;
+    // Base sampler
+    const n = (noise.noise((x + HEIGHT_OFF_X) * NOISE_SCALE_X, 0, (z + HEIGHT_OFF_Z) * NOISE_SCALE_Z) + 1) * 0.5; // 0..1
 
-    // Mountains: smooth, gradual uplift using a banded smoothstep mask
-    const ridged = 1 - Math.abs(noise.noise(x * MOUNTAIN_SCALE_X, 100, z * MOUNTAIN_SCALE_Z));
-    const s = THREE.MathUtils.smoothstep(
-      ridged,
-      MOUNTAIN_THRESHOLD - MOUNTAIN_BAND,
-      MOUNTAIN_THRESHOLD + MOUNTAIN_BAND
-    );
-    // Smooth hump (s^2 eases in/out more)
-    hBase += (s * s) * MOUNTAIN_HEIGHT;
-    // Very rare sharp cap on top of smooth mountains
-    const sharpStart = MOUNTAIN_THRESHOLD + MOUNTAIN_BAND + 0.07;
-    if (ridged > sharpStart) {
-      const tSharp = (ridged - sharpStart) / (1 - sharpStart);
-      hBase += Math.pow(tSharp, MOUNTAIN_SHARPNESS) * MOUNTAIN_SHARP_EXTRA;
-    }
+    // 2D biome field: heat and moisture
+    const heat = (noise.noise((x + HEAT_OFF_X) * HEAT_SCALE, 10, (z + HEAT_OFF_Z) * HEAT_SCALE) + 1) * 0.5;       // 0..1
+    const moist = (noise.noise((x + MOIST_OFF_X) * MOISTURE_FIELD_SCALE, 20, (z + MOIST_OFF_Z) * MOISTURE_FIELD_SCALE) + 1) * 0.5; // 0..1
+
+    // Ocean mask (wide blobs); soft band
+    const oceanRaw = (noise.noise((x + OCEAN_OFF_X) * OCEAN_SCALE, 30, (z + OCEAN_OFF_Z) * OCEAN_SCALE) + 1) * 0.5; // 0..1
+    const oceanW = THREE.MathUtils.smoothstep(oceanRaw, OCEAN_THRESHOLD - OCEAN_BAND, OCEAN_THRESHOLD + OCEAN_BAND);
+
+    // 2D weights from heat/moisture only (no macro 1D progression)
+    let wd = (1 - oceanW) * THREE.MathUtils.clamp(heat * (1 - moist), 0, 1);
+    let wf = (1 - oceanW) * THREE.MathUtils.clamp(moist * (1 - Math.abs(heat - 0.5) * 2), 0, 1);
+    let wm = (1 - oceanW) * THREE.MathUtils.clamp((1 - heat) * (1 - moist), 0, 1);
+    let wpl = (1 - oceanW) * (THREE.MathUtils.clamp(1 - Math.abs(heat - 0.5) * 2, 0, 1) * 0.5);
+    let wo = oceanW; // ocean weight
+
+    // Normalize terrain weights (not including ocean)
+    const terrSum = wd + wpl + wf + wm;
+    if (terrSum > 0) { wd/=terrSum; wpl/=terrSum; wf/=terrSum; wm/=terrSum; }
+
+    // Biome-weighted height ranges
+    const desertMin = 0.0, desertMax = 5.0;
+    const plateauMin = 10.0, plateauMax = 40.0;
+    const forestMin = 5.0, forestMax = 20.0;
+    const mountainMin = 30.0, mountainMax = 80.0;
+
+    const hDesert = desertMin + (desertMax - desertMin) * n;
+    const hPlateau = plateauMin + (plateauMax - plateauMin) * n;
+    const hForest = forestMin + (forestMax - forestMin) * n;
+    const hMountain = mountainMin + (mountainMax - mountainMin) * n;
+
+    const wSumLocal = wd + wpl + wf + wm;
+    let hBase = (wSumLocal > 0)
+      ? (hDesert * wd + hPlateau * wpl + hForest * wf + hMountain * wm) / wSumLocal
+      : 0.0;
 
     // Plateaus: quantize where mask is strong
-    const plateauMask = noise.noise(x * PLATEAU_SCALE, 200, z * PLATEAU_SCALE);
+    const plateauMask = noise.noise((x + PLATEAU_OFF_X) * PLATEAU_SCALE, 200, (z + PLATEAU_OFF_Z) * PLATEAU_SCALE);
     if (plateauMask > PLATEAU_THRESHOLD) {
       hBase = Math.round(hBase / PLATEAU_STEP) * PLATEAU_STEP;
     }
 
-    // Sea: clamp below sea level to flat water surface
+    // Sea: smoothly blend toward sea level near coastline using ocean weight and proximity
     const hRaw = hBase;
-    const h = hBase < SEA_LEVEL ? SEA_LEVEL : hBase;
+    const shoreT = THREE.MathUtils.clamp((SEA_LEVEL + SHORE_RANGE - hBase) / SHORE_RANGE, 0, 1); // higher near/below sea level
+    const waterBlend = THREE.MathUtils.clamp(wo * shoreT, 0, 1);
+    const h = THREE.MathUtils.lerp(Math.max(SEA_LEVEL, hBase), SEA_LEVEL, waterBlend);
     pos.setY(i, h);
 
-    // Biome coloring
-    const moisture = (noise.noise(x * MOISTURE_SCALE, 50, z * MOISTURE_SCALE) + 1) * 0.5; // 0..1
+    // Mountain sub-blend: dynamic snowline (colder = more snow) and ice tint for very cold
+    const coldBoost = THREE.MathUtils.clamp(0.5 - heat, 0, 1) * 15.0; // lower snowline up to 15u in cold zones
+    const snowHeight = SNOW_HEIGHT - coldBoost;
+    const snowRange = 12.0; // wider blend for gradual snow cover
+    const snowT = THREE.MathUtils.clamp((h - snowHeight) / snowRange, 0.0, 1.0);
+    const mountainBase = new THREE.Color().lerpColors(ROCK_COLOR, SNOW_COLOR, snowT);
+    const iceT = THREE.MathUtils.smoothstep(0.0, 0.35, 1.0 - heat) * snowT; // only in cold + snowy areas
+    const mountainCol = new THREE.Color().lerpColors(mountainBase, ICE_COLOR, iceT);
 
-    if (h === SEA_LEVEL) {
-      const depth = THREE.MathUtils.clamp((SEA_LEVEL - hRaw) / 5.0, 0, 1);
+    // Mix biome colors with ocean override
+    const colDesert = DESERT_COLOR;
+    const colPlateau = PLATEAU_COLOR;
+    const colForest = new THREE.Color().lerpColors(GRASS_COLOR, FOREST_COLOR, 0.5);
+    const colMountain = mountainCol;
+
+    if (waterBlend > 0.05) {
+      const depth = THREE.MathUtils.clamp((SEA_LEVEL - Math.min(hRaw, SEA_LEVEL)) / 5.0, 0, 1);
       color.lerpColors(WATER_SHALLOW, WATER_DEEP, depth);
-    } else if (h > SNOW_HEIGHT) {
-      color.copy(SNOW_COLOR);
-    } else if (plateauMask > PLATEAU_THRESHOLD) {
-      color.copy(PLATEAU_COLOR);
-    } else if (moisture < 0.35) {
-      color.copy(DESERT_COLOR);
-    } else if (moisture > 0.65) {
-      color.copy(FOREST_COLOR);
     } else {
-      color.copy(GRASS_COLOR);
+      // Blend terrain colors
+      const tmp = new THREE.Color();
+      color.setRGB(0, 0, 0);
+      tmp.copy(colDesert).multiplyScalar(wd); color.add(tmp);
+      tmp.copy(colPlateau).multiplyScalar(wpl); color.add(tmp);
+      tmp.copy(colForest).multiplyScalar(wf); color.add(tmp);
+      tmp.copy(colMountain).multiplyScalar(wm); color.add(tmp);
+      const wSum = wd + wpl + wf + wm;
+      if (wSum > 0) color.multiplyScalar(1 / wSum);
+
+      // Beach band: warm sand tint right above shoreline
+      if (h > SEA_LEVEL && h < SEA_LEVEL + 2.5) {
+        color.lerp(DESERT_COLOR, 0.6);
+      }
     }
 
     colorAttr.setXYZ(i, color.r, color.g, color.b);

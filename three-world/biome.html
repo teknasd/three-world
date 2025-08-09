@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perlin Noise Biome Generator</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="bg-gray-800 p-8 rounded-xl shadow-lg w-full max-w-4xl text-center">
+        <h1 class="text-3xl font-bold mb-4">Perlin Noise Biome Generator</h1>
+        <p class="text-gray-400 mb-6">Adjust the scale to see how different noise values create diverse biomes. The color legend is below the map.</p>
+
+        <!-- Canvas for the biome map -->
+        <div class="w-full flex justify-center mb-6">
+            <canvas id="biomeCanvas" class="rounded-lg shadow-inner border-2 border-gray-700"></canvas>
+        </div>
+
+        <!-- Controls for noise generation -->
+        <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8">
+            <div class="flex items-center space-x-4 w-full md:w-auto">
+                <label for="scaleInput" class="text-lg whitespace-nowrap">Noise Scale:</label>
+                <input type="range" id="scaleInput" min="10" max="200" value="50" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                <span id="scaleValue" class="text-lg font-mono w-10 text-right">50</span>
+            </div>
+            <button id="regenerateBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition-colors duration-200 shadow-md">
+                Regenerate Map
+            </button>
+        </div>
+
+        <!-- Biome color legend -->
+        <div class="mt-8">
+            <h2 class="text-xl font-semibold mb-2">Biome Legend:</h2>
+            <div class="flex flex-wrap justify-center gap-4">
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-md" style="background-color: #1a5c8e;"></span>
+                    <span>Deep Water</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-md" style="background-color: #2b77a9;"></span>
+                    <span>Shallow Water</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-md" style="background-color: #f7d286;"></span>
+                    <span>Sand</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-md" style="background-color: #559942;"></span>
+                    <span>Grassland</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-md" style="background-color: #3b6b2f;"></span>
+                    <span>Forest</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-md" style="background-color: #928b8a;"></span>
+                    <span>Mountain</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-md" style="background-color: #e0e0e0;"></span>
+                    <span>Snowy Peaks</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Perlin Noise implementation
+        // This is a common implementation of 2D Perlin Noise.
+        // It provides a "smooth random" value for any given coordinate.
+        const Perlin = function() {
+            let p = [];
+            for (let i = 0; i < 256; i++) {
+                p.push(Math.floor(Math.random() * 256));
+            }
+            // To create a seamless permutation table, we double the values
+            p = [...p, ...p];
+
+            // Helper function for linear interpolation
+            const lerp = (a, b, x) => a + x * (b - a);
+
+            // A smoothstep function to make transitions more fluid
+            const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+
+            // A dot product function to calculate the influence of a gradient vector
+            const grad = (hash, x, y) => {
+                const h = hash & 15;
+                const u = h < 8 ? x : y;
+                const v = h < 4 ? y : h == 12 || h == 14 ? x : 0;
+                return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+            };
+
+            this.noise = (x, y) => {
+                // Find unit grid cell coordinates
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+
+                // Find relative x,y of point within grid cell
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+
+                // Compute fade curves for x,y
+                const u = fade(x);
+                const v = fade(y);
+
+                // Hash coordinates of the 4 grid corners
+                const A = p[X] + Y;
+                const B = p[X + 1] + Y;
+
+                // Interpolate between the four corners
+                const corner0 = grad(p[A], x, y);
+                const corner1 = grad(p[B], x - 1, y);
+                const corner2 = grad(p[p[A] + 1], x, y - 1);
+                const corner3 = grad(p[p[B] + 1], x - 1, y - 1);
+
+                return lerp(lerp(corner0, corner1, u), lerp(corner2, corner3, u), v);
+            };
+        };
+
+        const canvas = document.getElementById('biomeCanvas');
+        const ctx = canvas.getContext('2d');
+        const scaleInput = document.getElementById('scaleInput');
+        const scaleValueSpan = document.getElementById('scaleValue');
+        const regenerateBtn = document.getElementById('regenerateBtn');
+
+        const mapSize = 512;
+        canvas.width = mapSize;
+        canvas.height = mapSize;
+        let perlin;
+
+        // Function to define biome colors based on noise value
+        // The noise value ranges from -1 to 1. We remap it to a 0-1 range.
+        function getBiomeColor(noiseValue) {
+            const remappedNoise = (noiseValue + 1) / 2; // Remap to 0-1
+            
+            // Define thresholds for different biomes
+            if (remappedNoise < 0.2) {
+                return '#1a5c8e'; // Deep Water
+            } else if (remappedNoise < 0.3) {
+                return '#2b77a9'; // Shallow Water
+            } else if (remappedNoise < 0.35) {
+                return '#f7d286'; // Sand
+            } else if (remappedNoise < 0.6) {
+                return '#559942'; // Grassland
+            } else if (remappedNoise < 0.8) {
+                return '#3b6b2f'; // Forest
+            } else if (remappedNoise < 0.95) {
+                return '#928b8a'; // Mountain
+            } else {
+                return '#e0e0e0'; // Snowy Peaks
+            }
+        }
+
+        // Function to draw the biome map
+        function drawMap() {
+            const scale = parseFloat(scaleInput.value);
+            scaleValueSpan.textContent = scale;
+            
+            for (let y = 0; y < mapSize; y++) {
+                for (let x = 0; x < mapSize; x++) {
+                    // Normalize coordinates to feed into the noise function
+                    const noiseX = x / scale;
+                    const noiseY = y / scale;
+
+                    // Get the noise value for this coordinate
+                    const noiseVal = perlin.noise(noiseX, noiseY);
+                    
+                    // Set the color for the pixel based on the noise value
+                    ctx.fillStyle = getBiomeColor(noiseVal);
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+        }
+
+        // Initial setup
+        function init() {
+            perlin = new Perlin();
+            drawMap();
+        }
+
+        // Event listeners for user interaction
+        scaleInput.addEventListener('input', () => {
+            scaleValueSpan.textContent = scaleInput.value;
+        });
+
+        // Use 'change' to only redraw once the user is done dragging the slider
+        scaleInput.addEventListener('change', drawMap); 
+        regenerateBtn.addEventListener('click', init);
+
+        // Run the initial setup on window load
+        window.onload = init;
+    </script>
+</body>
+</html>
