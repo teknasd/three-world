@@ -6,30 +6,30 @@ const textureLoader = new THREE.TextureLoader();
 const terrainTexture = textureLoader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
 terrainTexture.wrapS = THREE.RepeatWrapping;
 terrainTexture.wrapT = THREE.RepeatWrapping;
-terrainTexture.repeat.set(100, 5);
-terrainTexture.colorSpace = THREE.SRGBColorSpace;
+terrainTexture.repeat.set(100, 5); // Texture tiling on X/Z of each plane segment
+terrainTexture.colorSpace = THREE.SRGBColorSpace; // Ensure texture is treated as sRGB for correct color
 // Scene
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x9fc4e7);
-scene.fog = new THREE.Fog(scene.background, 80, 700);
+scene.background = new THREE.Color(0x9fc4e7); // Sky color
+scene.fog = new THREE.Fog(scene.background, 80, 700); // Atmospheric fog (near, far)
 
 // Clock for delta timing (used for uniform forward motion)
-const clock = new THREE.Clock();
+const clock = new THREE.Clock(); // Frame delta timer
 
 // Helpers
-const gridHelper = new THREE.GridHelper(20, 40, 0x888888, 0x444444);
+const gridHelper = new THREE.GridHelper(20, 40, 0x888888, 0x444444); // Reference grid (debug)
 scene.add(gridHelper);
 
-const axesHelper = new THREE.AxesHelper(5);
+const axesHelper = new THREE.AxesHelper(5); // XYZ axis helper (debug)
 scene.add(axesHelper);
 
 // Stats panel
 const stats = new Stats();
-stats.showPanel(0); // 0: fps
+stats.showPanel(0); // FPS panel
 document.body.appendChild(stats.dom);
 
 // Pause/Resume toggle via button
-let paused = true;
+let paused = true; // Start paused so scene is visible before motion
 const toggleBtn = document.getElementById('toggleAnimBtn');
 if (toggleBtn) {
   toggleBtn.textContent = paused ? 'Resume' : 'Pause';
@@ -42,34 +42,34 @@ if (toggleBtn) {
 
 // Camera
 const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
+  75, // Field of view (degrees)
+  window.innerWidth / window.innerHeight, // Aspect ratio
+  0.1, // Near plane
+  1000 // Far plane (must see far terrain)
 );
-camera.position.z = 10;
-camera.position.y = 60;
+camera.position.z = 10; // Start Z
+camera.position.y = 60; // Start height above terrain
 
 // Renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true }); // Smooth edges
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // Controls
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; // smooth camera motion
-controls.dampingFactor = 0.05;
+controls.enableDamping = true; // Smooth camera motion
+controls.dampingFactor = 0.05; // Damping factor for controls
 // Aim the camera slightly ahead along -Z initially
 controls.target.set(0, 0, camera.position.z - 10);
 controls.update();
 
 // Lights
-const ambientLight = new THREE.AmbientLight(0xfff3e0, 0.4);
+const ambientLight = new THREE.AmbientLight(0xfff3e0, 0.4); // Warm ambient light
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffe0b2, 1.0);
-directionalLight.position.set(10, 15, 8);
-directionalLight.castShadow = false;
+const directionalLight = new THREE.DirectionalLight(0xffe0b2, 1.0); // Warm sun light
+directionalLight.position.set(10, 15, 8); // Sun position
+directionalLight.castShadow = false; // Shadow disabled (perf)
 scene.add(directionalLight);
 
 // Cube
@@ -113,9 +113,9 @@ ico.userData = {};
 //scene.add(ico);
 
 // Group all animating shapes and give them an initial z offset farther from camera
-const shapes = [];
+const shapes = []; // Shapes system disabled (we use terrain only)
 
-const SPAWN_DEPTH = -20; // how far back new shapes spawn
+const SPAWN_DEPTH = -20; // Legacy: how far back shapes would spawn
 
 // Ensure originals have base positions recorded and start at spawn depth
 shapes.forEach((s) => {
@@ -125,13 +125,13 @@ shapes.forEach((s) => {
     baseY: s.position.y,
   };
   if (!s.geometry.boundingSphere) s.geometry.computeBoundingSphere();
-  s.userData.radius = s.geometry.boundingSphere.radius;
+  s.userData.radius = s.geometry.boundingSphere.radius; // For collision spacing
   s.position.z = SPAWN_DEPTH;
 });
 
 // ----- Random shape generation helpers -----
-const MAX_SHAPES = Infinity; // no hard cap so objects keep generating
-const MIN_DIST = 1.5; // minimum allowed distance between meshes at spawn
+const MAX_SHAPES = Infinity; // Shapes cap (unused; terrain only)
+const MIN_DIST = 1.5; // Min spacing between spawned shapes (unused)
 
 // Utility: completely dispose of a mesh’s resources to avoid GPU memory leaks
 function disposeMesh(mesh) {
@@ -159,7 +159,7 @@ function overlaps(mesh) {
     const dy = other.position.y - mesh.position.y;
     const dz = other.position.z - mesh.position.z; // likely ~0
 
-    const rSum = (other.userData.radius || 0.5) + (mesh.userData.radius || 0.5) + 0.1; // 0.1 safety
+    const rSum = (other.userData.radius || 0.5) + (mesh.userData.radius || 0.5) + 0.1; // Combined radii + margin
     if (dx * dx + dy * dy + dz * dz < rSum * rSum) {
       return true; // overlaps
     }
@@ -168,15 +168,15 @@ function overlaps(mesh) {
 }
 
 function rand(min, max) {
-  return Math.random() * (max - min) + min;
+  return Math.random() * (max - min) + min; // Uniform random in [min,max)
 }
 
 function randomColor() {
-  return Math.floor(Math.random() * 0xffffff);
+  return Math.floor(Math.random() * 0xffffff); // Random RGB color
 }
 
 function createRandomShape() {
-  const typeIndex = Math.floor(Math.random() * 5); // 0-4
+  const typeIndex = Math.floor(Math.random() * 5); // 0-4 type
   let geometry;
   switch (typeIndex) {
     case 0:
@@ -202,7 +202,7 @@ function createRandomShape() {
   if (!geometry.boundingSphere) geometry.computeBoundingSphere();
   mesh.userData.radius = geometry.boundingSphere.radius;
 
-  // Random lateral placement and animation params
+  // Random lateral placement
   const baseX = rand(-4, 4);
   const baseY = rand(-2, 2);
   mesh.position.set(baseX, baseY, SPAWN_DEPTH);
@@ -215,72 +215,137 @@ function createRandomShape() {
   return mesh;
 }
 
-const CAMERA_SPEED = 10; // units per second camera flies forward (toward -Z)
-const DESPAWN_DISTANCE = 10; // how far behind the camera a shape is removed
-const SPAWN_AHEAD_MIN = 5; // spawn closer to camera
-const SPAWN_AHEAD_MAX = 20; // still some depth variety but nearer
+const CAMERA_SPEED = 10; // Auto forward speed (units/sec) when unpaused
+const DESPAWN_DISTANCE = 10; // Legacy: despawn distance for shapes behind camera (unused)
+const SPAWN_AHEAD_MIN = 5; // Legacy: spawn range min ahead (unused)
+const SPAWN_AHEAD_MAX = 20; // Legacy: spawn range max ahead (unused)
 // (keep MAX_SHAPES and MIN_DIST as is)
 
 // ===== Infinite Ground Plane =====
-const PLANE_LENGTH = 50;
-const STEPS_AHEAD = 10;  // how many segments ahead of camera to keep
-const STEPS_BEHIND = 3;  // how many segments behind camera to keep
-const planeSegments = new Map(); // key: integer segment index, value: mesh
+const PLANE_LENGTH = 50; // Z-length of each terrain segment
+const STEPS_AHEAD = 10;  // Number of segments to keep ahead of camera
+const STEPS_BEHIND = 3;  // Number of segments to keep behind camera
+const planeSegments = new Map(); // Segment index -> Mesh
 
 // ===== Procedural surface using Perlin-like ImprovedNoise =====
 const noise = new ImprovedNoise();
-const NOISE_SCALE_X = 0.08;  // frequency across X
-const NOISE_SCALE_Z = 0.08;  // frequency across Z
-const NOISE_HEIGHT = 6.0;    // amplitude of height variation
-// Mountains (rare, very tall)
-const MOUNTAIN_SCALE_X = 0.02;
-const MOUNTAIN_SCALE_Z = 0.02;
-const MOUNTAIN_THRESHOLD = 0.90;
-const MOUNTAIN_BAND = 0.5;     // width of smooth transition around threshold
-const MOUNTAIN_HEIGHT = 30.0;   // main smooth mountain uplift
-const MOUNTAIN_SHARP_EXTRA = 8; // rare additional sharp cap
-const MOUNTAIN_SHARPNESS = 3.0; // exponent for rare sharpness
+const NOISE_SCALE_X = 0.08;  // Base noise frequency across X (lower = larger features)
+const NOISE_SCALE_Z = 0.08;  // Base noise frequency across Z
+const NOISE_HEIGHT = 6.0;    // Base noise amplitude used within biome ranges
+// Mountains (legacy uplift params kept for reference)
+const MOUNTAIN_SCALE_X = 0.02; // Legacy ridge scale X
+const MOUNTAIN_SCALE_Z = 0.02; // Legacy ridge scale Z
+const MOUNTAIN_THRESHOLD = 0.90; // Legacy ridge threshold
+const MOUNTAIN_BAND = 0.5;     // Legacy ridge smoothing band
+const MOUNTAIN_HEIGHT = 30.0;   // Legacy uplift amount
+const MOUNTAIN_SHARP_EXTRA = 8; // Legacy sharp cap height
+const MOUNTAIN_SHARPNESS = 3.0; // Legacy sharpness exponent
 
 // Biome helpers
-const SEA_LEVEL = 0.0;
-const SNOW_HEIGHT = 10.0; // above this -> snow
-const PLATEAU_SCALE = 0.05;
-const PLATEAU_THRESHOLD = 0.6;
-const PLATEAU_STEP = 1.5; // quantization step for plateaus
+const SEA_LEVEL = 6.0; // Water plane height (raised)
+const SNOW_HEIGHT = 10.0; // Base snowline height (lowered in cold regions)
+const PLATEAU_SCALE = 0.05; // Plateau mask frequency
+const PLATEAU_THRESHOLD = 0.6; // Strength threshold for plateau quantization
+const PLATEAU_STEP = 1.5; // Plateau step height for quantization
 // 2D biome fields (independent of travel direction)
-const HEAT_SCALE = 0.002;
-const MOISTURE_FIELD_SCALE = 0.002;
-const OCEAN_SCALE = 0.0015;
-const OCEAN_THRESHOLD = 0.62;
-const OCEAN_BAND = 0.06;
-// Ordered biome sequence along travel (Z): desert -> plateau -> forest -> mountains
-const BIOME_PERIOD = 2000; // world units over which a full cycle occurs
-const BIOME_BLEND = 0.05;  // fractional blend width at band edges
+const HEAT_SCALE = 0.002; // Controls size of hot/cold zones
+const MOISTURE_FIELD_SCALE = 0.002; // Controls size of wet/dry zones
+const OCEAN_SCALE = 0.0015; // Controls size of ocean/land blobs
+const OCEAN_THRESHOLD = 0.54; // Ocean mask threshold (lower = more ocean)
+const OCEAN_BAND = 0.08; // Softer, wider ocean edge band
+// Biome prevalence/shape controls
+const DESERT_BIAS = 1.0;   // >1 increases desert
+const FOREST_BIAS = 0.85;  // <1 reduces forest dominance
+const MOUNTAIN_BIAS = 10; // >1 increases mountain presence
+const PLATEAU_BIAS = 1.0;  // plateau weighting
+const HEAT_SHARP = 1.2;    // emphasize hot/cold
+const MOIST_SHARP = 1.15;  // emphasize wet/dry
+const MID_EXP = 1.2;       // emphasize mid heat/moist for plateau/forest
+// fBm height + domain warp
+const FBM_OCTAVES = 4;         // macro octaves for base height
+const FBM_GAIN = 0.5;          // amplitude falloff per octave
+const FBM_LACUNARITY = 2.0;    // frequency multiplier per octave
+const FBM_DETAIL_OCTAVES = 2;  // extra detail octaves
+const HEIGHT_BASE_SCALE = 0.02;   // world->noise scale for macro shapes
+const HEIGHT_DETAIL_SCALE = 0.12;  // higher-frequency detail scale
+const WARP_FREQ = 0.01;          // mild domain warp frequency
+const WARP_STRENGTH = 3.0;       // warp strength in world units
+const SLOPE_EPS = 0.5;           // sampling step for slope in noise domain
+const SLOPE_DETAIL_POWER = 1.2;  // how strongly slope boosts detail
+const SOFTMAX_TAU = 0.8;         // softmax temperature for color weights (lower = sharper)
+// Ordered biome sequence along travel (disabled for 2D-only biomes)
+const BIOME_PERIOD = 2000; // (unused) macro cycle length along Z
+const BIOME_BLEND = 0.05;  // Blend width for band edges
 
 // Biome colors
-const WATER_DEEP = new THREE.Color(0x0b3954);
-const WATER_SHALLOW = new THREE.Color(0x1f7a8c);
-const DESERT_COLOR = new THREE.Color(0xC2B280);
-const GRASS_COLOR = new THREE.Color(0x6aa84f);
-const FOREST_COLOR = new THREE.Color(0x2e7d32);
-const PLATEAU_COLOR = new THREE.Color(0x8d6e63);
-const ROCK_COLOR = new THREE.Color(0x7d7d7d);
-const SNOW_COLOR = new THREE.Color(0xffffff);
-const ICE_COLOR = new THREE.Color(0xcfe9ff);
-const SHORE_RANGE = 6.0; // units over which land eases into sea level
+const WATER_DEEP = new THREE.Color(0x0b3954); // Deep water color (legacy)
+const WATER_SHALLOW = new THREE.Color(0x1f7a8c); // Shallow water color (legacy)
+const WATER_SOLID = new THREE.Color(0x1f7a8c); // Solid water color for cheap rendering
+const DESERT_COLOR = new THREE.Color(0xC2B280); // Sand color
+const GRASS_COLOR = new THREE.Color(0x6aa84f); // Grass color
+const FOREST_COLOR = new THREE.Color(0x2e7d32); // Dense forest color
+const PLATEAU_COLOR = new THREE.Color(0x8d6e63); // Plateau/rocky earth color
+const ROCK_COLOR = new THREE.Color(0x7d7d7d); // Bare rock color
+const SNOW_COLOR = new THREE.Color(0xffffff); // Snow color
+const ICE_COLOR = new THREE.Color(0xcfe9ff); // Ice tint for very cold snow
+const SHORE_RANGE = 8.0; // Vertical range over which land eases into sea level (wider = gentler)
+const BEACH_SAND_COLOR = new THREE.Color(0xE2C199); // Warm beach sand
+const BEACH_MAX = 6.0; // Beach band height above sea level
+
+// Runtime-adjustable biome biases (initialized to defaults, can be overridden after load)
+let RUNTIME_DESERT_BIAS = DESERT_BIAS;
+let RUNTIME_PLATEAU_BIAS = PLATEAU_BIAS;
+let RUNTIME_FOREST_BIAS = FOREST_BIAS;
+let RUNTIME_MOUNTAIN_BIAS = MOUNTAIN_BIAS;
+let RUNTIME_OCEAN_THRESHOLD = OCEAN_THRESHOLD;
 
 // Seeded randomness for terrain offsets (stable across reloads; can override via ?seed=...)
-function xmur3(str){for(var i=0,h=1779033703^str.length;i<str.length;i++)h=Math.imul(h^str.charCodeAt(i),3432918353),h=h<<13|h>>>19;return function(){h=Math.imul(h^h>>>16,2246822507),h=Math.imul(h^h>>>13,3266489909);return(h^h>>>16)>>>0}}
-function sfc32(a,b,c,d){return function(){a>>>0;b>>>0;c>>>0;d>>>0;var t=(a+b|0)+d|0;d=d+1|0;a=b^b>>>9;b=c+(c<<3)|0;c=(c<<21|c>>>11);c=c+t|0;return((t>>>0)/4294967296)}}
+function xmur3(str){for(var i=0,h=1779033703^str.length;i<str.length;i++)h=Math.imul(h^str.charCodeAt(i),3432918353),h=h<<13|h>>>19;return function(){h=Math.imul(h^h>>>16,2246822507),h=Math.imul(h^h>>>13,3266489909);return(h^h>>>16)>>>0}} // String hash -> 32-bit
+function sfc32(a,b,c,d){return function(){a>>>0;b>>>0;c>>>0;d>>>0;var t=(a+b|0)+d|0;d=d+1|0;a=b^b>>>9;b=c+(c<<3)|0;c=(c<<21|c>>>11);c=c+t|0;return((t>>>0)/4294967296)}} // Small fast counter PRNG
 const _params = new URLSearchParams(window.location.search);
-let _seedStr = _params.get('seed') || window.localStorage.getItem('terrain_seed');
+let _seedStr = _params.get('seed') || window.localStorage.getItem('terrain_seed'); // Seed source
 if(!_seedStr){ _seedStr = String(Math.floor(Math.random()*1e9)); window.localStorage.setItem('terrain_seed', _seedStr); }
-const _h = xmur3(_seedStr); const _rng = sfc32(_h(), _h(), _h(), _h());
-const HEIGHT_OFF_X = _rng()*10000, HEIGHT_OFF_Z = _rng()*10000;
-const HEAT_OFF_X = _rng()*10000, HEAT_OFF_Z = _rng()*10000;
-const MOIST_OFF_X = _rng()*10000, MOIST_OFF_Z = _rng()*10000;
-const OCEAN_OFF_X = _rng()*10000, OCEAN_OFF_Z = _rng()*10000;
-const PLATEAU_OFF_X = _rng()*10000, PLATEAU_OFF_Z = _rng()*10000;
+let _h = xmur3(_seedStr); let _rng = sfc32(_h(), _h(), _h(), _h()); // Deterministic RNG
+let HEIGHT_OFF_X = _rng()*10000, HEIGHT_OFF_Z = _rng()*10000; // Height noise offsets
+let HEAT_OFF_X = _rng()*10000, HEAT_OFF_Z = _rng()*10000; // Heat field offsets
+let MOIST_OFF_X = _rng()*10000, MOIST_OFF_Z = _rng()*10000; // Moisture field offsets
+let OCEAN_OFF_X = _rng()*10000, OCEAN_OFF_Z = _rng()*10000; // Ocean mask offsets
+let PLATEAU_OFF_X = _rng()*10000, PLATEAU_OFF_Z = _rng()*10000; // Plateau mask offsets
+const RIDGE_OFF_X = _rng()*10000, RIDGE_OFF_Z = _rng()*10000;     // Mountain ridge offsets
+const MOUNTAIN_RIDGE_SCALE = 0.0018;   // Large-scale ridges
+const MOUNTAIN_RIDGE_FACTOR = 0.7;     // Ridge contribution to mountain weight
+// Sharp mountain range controls
+const MOUNTAIN_RANGE_SHARPNESS = 1.6;   // how coherent/continuous ranges are
+const MOUNTAIN_PEAK_SCALE = 0.06;       // peak detail frequency
+const MOUNTAIN_PEAK_HEIGHT = 35.0;      // additional peak height
+const MOUNTAIN_PEAK_SHARPNESS = 2.2;    // sharpness of peaks
+const MOUNTAIN_VALLEY_SCALE = 0.01;     // broad valley frequency
+const MOUNTAIN_VALLEY_DEPTH = 6.0;      // how much to carve valleys
+// Rivers
+const RIVER_SCALE = 0.0022;             // river path frequency (lower = longer, fewer rivers)
+const RIVER_WIDTH = 0.045;              // visual width of river corridors (controls mask softness)
+const RIVER_DEPTH = 3.8;                // how deep to carve channels into terrain
+const RIVER_BANK_BAND = 2.0;            // bank band height above riverbed for coloring
+const RIVER_DEEP_COLOR = new THREE.Color(0x1a4b7a);
+const RIVER_SHALLOW_COLOR = new THREE.Color(0x2b6ea6);
+const RIVER_OFF_X = _rng()*10000, RIVER_OFF_Z = _rng()*10000;     // River noise offsets
+
+// fBm and domain warping helpers (Perlin-based via ImprovedNoise)
+function fbm2D(nx, nz, octaves = FBM_OCTAVES, lac = FBM_LACUNARITY, gain = FBM_GAIN, seedY = 0) {
+  let amp = 1.0, freq = 1.0, sum = 0.0, norm = 0.0;
+  for (let i = 0; i < octaves; i++) {
+    sum += amp * noise.noise(nx * freq, seedY + i * 13.37, nz * freq);
+    norm += amp;
+    amp *= gain;
+    freq *= lac;
+  }
+  return sum / Math.max(1e-6, norm); // ~[-1,1]
+}
+function domainWarp(wx, wz) {
+  const wxn = fbm2D((wx + HEIGHT_OFF_X) * WARP_FREQ, (wz + HEIGHT_OFF_Z) * WARP_FREQ, 3, 2.0, 0.5, 111.0);
+  const wzn = fbm2D((wx - HEIGHT_OFF_X) * WARP_FREQ, (wz - HEIGHT_OFF_Z) * WARP_FREQ, 3, 2.0, 0.5, 222.0);
+  return { x: wx + wxn * WARP_STRENGTH, z: wz + wzn * WARP_STRENGTH };
+}
 
 // Deform a plane geometry in-place based on world XZ and an offset
 function deformPlane(geometry, worldZOffset) {
@@ -302,8 +367,21 @@ function deformPlane(geometry, worldZOffset) {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i) + worldZOffset;
-    // Base sampler
-    const n = (noise.noise((x + HEIGHT_OFF_X) * NOISE_SCALE_X, 0, (z + HEIGHT_OFF_Z) * NOISE_SCALE_Z) + 1) * 0.5; // 0..1
+    // Base sampler using fBm + mild domain warp
+    const warped = domainWarp(x, z);
+    const fMacro = fbm2D((warped.x + HEIGHT_OFF_X) * HEIGHT_BASE_SCALE, (warped.z + HEIGHT_OFF_Z) * HEIGHT_BASE_SCALE);
+    const fDetail = fbm2D((warped.x + HEIGHT_OFF_X) * HEIGHT_DETAIL_SCALE, (warped.z + HEIGHT_OFF_Z) * HEIGHT_DETAIL_SCALE, FBM_DETAIL_OCTAVES);
+    // Approximate slope via central differences on macro field in noise domain
+    const fx1 = fbm2D((warped.x + HEIGHT_OFF_X + SLOPE_EPS) * HEIGHT_BASE_SCALE, (warped.z + HEIGHT_OFF_Z) * HEIGHT_BASE_SCALE);
+    const fx0 = fbm2D((warped.x + HEIGHT_OFF_X - SLOPE_EPS) * HEIGHT_BASE_SCALE, (warped.z + HEIGHT_OFF_Z) * HEIGHT_BASE_SCALE);
+    const fz1 = fbm2D((warped.x + HEIGHT_OFF_X) * HEIGHT_BASE_SCALE, (warped.z + HEIGHT_OFF_Z + SLOPE_EPS) * HEIGHT_BASE_SCALE);
+    const fz0 = fbm2D((warped.x + HEIGHT_OFF_X) * HEIGHT_BASE_SCALE, (warped.z + HEIGHT_OFF_Z - SLOPE_EPS) * HEIGHT_BASE_SCALE);
+    const dfdx = (fx1 - fx0) / (2 * SLOPE_EPS);
+    const dfdz = (fz1 - fz0) / (2 * SLOPE_EPS);
+    const slope = Math.sqrt(dfdx * dfdx + dfdz * dfdz);
+    const detailBoost = Math.pow(THREE.MathUtils.clamp(slope * 2.0, 0, 1), SLOPE_DETAIL_POWER);
+    // Combine macro/detail into 0..1
+    const n = THREE.MathUtils.clamp((fMacro + 1) * 0.5 * 0.8 + (fDetail + 1) * 0.5 * 0.2 * detailBoost, 0, 1);
 
     // 2D biome field: heat and moisture
     const heat = (noise.noise((x + HEAT_OFF_X) * HEAT_SCALE, 10, (z + HEAT_OFF_Z) * HEAT_SCALE) + 1) * 0.5;       // 0..1
@@ -311,24 +389,39 @@ function deformPlane(geometry, worldZOffset) {
 
     // Ocean mask (wide blobs); soft band
     const oceanRaw = (noise.noise((x + OCEAN_OFF_X) * OCEAN_SCALE, 30, (z + OCEAN_OFF_Z) * OCEAN_SCALE) + 1) * 0.5; // 0..1
-    const oceanW = THREE.MathUtils.smoothstep(oceanRaw, OCEAN_THRESHOLD - OCEAN_BAND, OCEAN_THRESHOLD + OCEAN_BAND);
+    const oceanW = THREE.MathUtils.smoothstep(oceanRaw, RUNTIME_OCEAN_THRESHOLD - OCEAN_BAND, RUNTIME_OCEAN_THRESHOLD + OCEAN_BAND);
+    // Coastal proximity (0 away from coast, 1 at the coastline band)
+    const coastProx = THREE.MathUtils.clamp(1 - Math.abs(oceanRaw - RUNTIME_OCEAN_THRESHOLD) / OCEAN_BAND, 0, 1);
+    const coast = THREE.MathUtils.smoothstep(coastProx, 0.0, 1.0);
 
-    // 2D weights from heat/moisture only (no macro 1D progression)
-    let wd = (1 - oceanW) * THREE.MathUtils.clamp(heat * (1 - moist), 0, 1);
-    let wf = (1 - oceanW) * THREE.MathUtils.clamp(moist * (1 - Math.abs(heat - 0.5) * 2), 0, 1);
-    let wm = (1 - oceanW) * THREE.MathUtils.clamp((1 - heat) * (1 - moist), 0, 1);
-    let wpl = (1 - oceanW) * (THREE.MathUtils.clamp(1 - Math.abs(heat - 0.5) * 2, 0, 1) * 0.5);
-    let wo = oceanW; // ocean weight
+    // Shape heat/moist to reduce grass dominance and increase extremes
+    const hot = Math.pow(heat, HEAT_SHARP);
+    const cold = Math.pow(1 - heat, HEAT_SHARP);
+    const wet = Math.pow(moist, MOIST_SHARP);
+    const dry = Math.pow(1 - moist, MOIST_SHARP);
+    const midHeat = Math.pow(THREE.MathUtils.clamp(1 - Math.abs(heat - 0.5) * 2, 0, 1), MID_EXP);
+    const midMoist = Math.pow(THREE.MathUtils.clamp(1 - Math.abs(moist - 0.5) * 2, 0, 1), MID_EXP);
 
-    // Normalize terrain weights (not including ocean)
-    const terrSum = wd + wpl + wf + wm;
+    // Ridge noise to seed more mountain chains
+    const ridgeRaw = 1 - Math.abs(noise.noise((x + RIDGE_OFF_X) * MOUNTAIN_RIDGE_SCALE, 300, (z + RIDGE_OFF_Z) * MOUNTAIN_RIDGE_SCALE));
+    const ridgeBoost = THREE.MathUtils.clamp((ridgeRaw - 0.6) / 0.4, 0, 1); // 0 if <0.6, up to 1 near 1.0
+
+    // 2D weights driven purely by fields (ocean masks everything)
+    let wd = (1 - oceanW) * RUNTIME_DESERT_BIAS   * (hot * dry);
+    let wf = (1 - oceanW) * RUNTIME_FOREST_BIAS   * (wet * midHeat);
+    let wpl = (1 - oceanW) * RUNTIME_PLATEAU_BIAS * (midHeat * midMoist);
+    let wm = (1 - oceanW) * RUNTIME_MOUNTAIN_BIAS * (cold * dry) + (1 - oceanW) * (MOUNTAIN_RIDGE_FACTOR * ridgeBoost);
+    let wo = oceanW; // Ocean weight
+
+    // Normalize terrain weights (not including ocean) for height blending
+    let terrSum = wd + wpl + wf + wm;
     if (terrSum > 0) { wd/=terrSum; wpl/=terrSum; wf/=terrSum; wm/=terrSum; }
 
     // Biome-weighted height ranges
-    const desertMin = 0.0, desertMax = 5.0;
-    const plateauMin = 10.0, plateauMax = 40.0;
-    const forestMin = 5.0, forestMax = 20.0;
-    const mountainMin = 30.0, mountainMax = 80.0;
+    const desertMin = 0.0, desertMax = 5.0; // Plains/desert height range
+    const plateauMin = 10.0, plateauMax = 40.0; // Plateau height range
+    const forestMin = 5.0, forestMax = 20.0; // Forest height range
+    const mountainMin = 30.0, mountainMax = 80.0; // Mountain height range
 
     const hDesert = desertMin + (desertMax - desertMin) * n;
     const hPlateau = plateauMin + (plateauMax - plateauMin) * n;
@@ -340,27 +433,69 @@ function deformPlane(geometry, worldZOffset) {
       ? (hDesert * wd + hPlateau * wpl + hForest * wf + hMountain * wm) / wSumLocal
       : 0.0;
 
+    // Add sharp mountain ranges using ridged uplift, only where mountain weight is high
+    if (wm > 0.05) {
+      // Range mask from large-scale ridged noise
+      const rangeNoise = 1 - Math.abs(noise.noise((warped.x + RIDGE_OFF_X) * MOUNTAIN_RIDGE_SCALE, 700, (warped.z + RIDGE_OFF_Z) * MOUNTAIN_RIDGE_SCALE));
+      const rangeMask = Math.pow(THREE.MathUtils.clamp((rangeNoise - 0.5) / 0.5, 0, 1), MOUNTAIN_RANGE_SHARPNESS);
+      // Peak detail (ridged) for spiky tops
+      const peakNoise = 1 - Math.abs(noise.noise((warped.x + HEIGHT_OFF_X) * MOUNTAIN_PEAK_SCALE, 900, (warped.z + HEIGHT_OFF_Z) * MOUNTAIN_PEAK_SCALE));
+      const peak = Math.pow(THREE.MathUtils.clamp(peakNoise, 0, 1), MOUNTAIN_PEAK_SHARPNESS);
+      const uplift = wm * rangeMask * peak * MOUNTAIN_PEAK_HEIGHT;
+      hBase += uplift;
+      // Carve broad valleys between ranges to emphasize ridges
+      const valley = (noise.noise(warped.x * MOUNTAIN_VALLEY_SCALE, 1200, warped.z * MOUNTAIN_VALLEY_SCALE) + 1) * 0.5;
+      hBase -= (1 - rangeMask) * wm * valley * MOUNTAIN_VALLEY_DEPTH;
+    }
+
+    // Rivers: carve channels along Perlin zero-crossings, prefer gentle slopes & moist areas
+    const riverField = noise.noise((warped.x + RIVER_OFF_X) * RIVER_SCALE, 400, (warped.z + RIVER_OFF_Z) * RIVER_SCALE);
+    const riverCore = 1.0 - THREE.MathUtils.smoothstep(0.0, RIVER_WIDTH, Math.abs(riverField)); // ~1 at zero-crossing lines
+    const lowSlope = 1.0 - THREE.MathUtils.clamp(slope * 3.0, 0, 1); // prefer flats
+    const moistFavor = Math.pow(THREE.MathUtils.clamp(moist, 0, 1), 1.2);
+    let riverMask = riverCore * lowSlope * moistFavor;
+    // Only carve where above sea to avoid conflicts with ocean flattening
+    if (hBase > SEA_LEVEL + 0.2) {
+      hBase -= riverMask * RIVER_DEPTH;
+    }
+
     // Plateaus: quantize where mask is strong
     const plateauMask = noise.noise((x + PLATEAU_OFF_X) * PLATEAU_SCALE, 200, (z + PLATEAU_OFF_Z) * PLATEAU_SCALE);
     if (plateauMask > PLATEAU_THRESHOLD) {
       hBase = Math.round(hBase / PLATEAU_STEP) * PLATEAU_STEP;
     }
 
-    // Sea: smoothly blend toward sea level near coastline using ocean weight and proximity
+    // Sea: enforce monotonic transition to water using ocean flatten factor
     const hRaw = hBase;
-    const shoreT = THREE.MathUtils.clamp((SEA_LEVEL + SHORE_RANGE - hBase) / SHORE_RANGE, 0, 1); // higher near/below sea level
-    const waterBlend = THREE.MathUtils.clamp(wo * shoreT, 0, 1);
-    const h = THREE.MathUtils.lerp(Math.max(SEA_LEVEL, hBase), SEA_LEVEL, waterBlend);
+    const oceanFlatten = Math.pow(wo, 1.2); // suppression as ocean increases
+    const landBase = hBase; // allow terrain to go below sea for underwater relief
+    const shelf = SEA_LEVEL - 0.8; // shallow shelf slightly below sea level
+    const towardShelf = THREE.MathUtils.lerp(landBase, shelf, Math.max(coast, oceanFlatten));
+    const h = THREE.MathUtils.lerp(towardShelf, SEA_LEVEL, oceanFlatten); // no re-raising beyond coast
     pos.setY(i, h);
 
     // Mountain sub-blend: dynamic snowline (colder = more snow) and ice tint for very cold
-    const coldBoost = THREE.MathUtils.clamp(0.5 - heat, 0, 1) * 15.0; // lower snowline up to 15u in cold zones
-    const snowHeight = SNOW_HEIGHT - coldBoost;
-    const snowRange = 12.0; // wider blend for gradual snow cover
-    const snowT = THREE.MathUtils.clamp((h - snowHeight) / snowRange, 0.0, 1.0);
+    const coldBoost = THREE.MathUtils.clamp(0.5 - heat, 0, 1) * 15.0; // Lower snowline up to 15 units in cold zones
+    const snowHeight = SNOW_HEIGHT - coldBoost; // Local snowline
+    const snowRange = 12.0; // Blend range for snow cover
+    const snowT = THREE.MathUtils.clamp((h - snowHeight) / snowRange, 0.0, 1.0); // 0..1 snow factor
     const mountainBase = new THREE.Color().lerpColors(ROCK_COLOR, SNOW_COLOR, snowT);
-    const iceT = THREE.MathUtils.smoothstep(0.0, 0.35, 1.0 - heat) * snowT; // only in cold + snowy areas
+    const iceT = THREE.MathUtils.smoothstep(0.0, 0.35, 1.0 - heat) * snowT; // Ice only in cold + snowy areas
     const mountainCol = new THREE.Color().lerpColors(mountainBase, ICE_COLOR, iceT);
+
+    // Elevation-coupled softmax weights for color (more mountains with elevation, less desert)
+    const elevNorm = THREE.MathUtils.clamp((hBase - 5.0) / (80.0 - 0.0), 0, 1);
+    let cwD = wd * (1.0 - 0.5 * elevNorm);
+    let cwP = wpl * (0.6 + 0.8 * (1 - Math.abs(elevNorm - 0.5) * 2));
+    let cwF = wf * (0.7 + 0.6 * (1 - Math.abs(elevNorm - 0.5) * 2));
+    let cwM = wm * (0.6 + 1.2 * elevNorm);
+    // Softmax
+    const eD = Math.exp(cwD / SOFTMAX_TAU);
+    const eP = Math.exp(cwP / SOFTMAX_TAU);
+    const eF = Math.exp(cwF / SOFTMAX_TAU);
+    const eM = Math.exp(cwM / SOFTMAX_TAU);
+    const eSum = eD + eP + eF + eM;
+    cwD = eD / eSum; cwP = eP / eSum; cwF = eF / eSum; cwM = eM / eSum;
 
     // Mix biome colors with ocean override
     const colDesert = DESERT_COLOR;
@@ -368,23 +503,31 @@ function deformPlane(geometry, worldZOffset) {
     const colForest = new THREE.Color().lerpColors(GRASS_COLOR, FOREST_COLOR, 0.5);
     const colMountain = mountainCol;
 
-    if (waterBlend > 0.05) {
-      const depth = THREE.MathUtils.clamp((SEA_LEVEL - Math.min(hRaw, SEA_LEVEL)) / 5.0, 0, 1);
-      color.lerpColors(WATER_SHALLOW, WATER_DEEP, depth);
+    if (Math.pow(wo, 1.2) > 0.05) {
+      // Solid water color (no per-vertex depth blending)
+      color.copy(WATER_SOLID);
     } else {
       // Blend terrain colors
       const tmp = new THREE.Color();
       color.setRGB(0, 0, 0);
-      tmp.copy(colDesert).multiplyScalar(wd); color.add(tmp);
-      tmp.copy(colPlateau).multiplyScalar(wpl); color.add(tmp);
-      tmp.copy(colForest).multiplyScalar(wf); color.add(tmp);
-      tmp.copy(colMountain).multiplyScalar(wm); color.add(tmp);
-      const wSum = wd + wpl + wf + wm;
+      tmp.copy(colDesert).multiplyScalar(cwD); color.add(tmp);
+      tmp.copy(colPlateau).multiplyScalar(cwP); color.add(tmp);
+      tmp.copy(colForest).multiplyScalar(cwF); color.add(tmp);
+      tmp.copy(colMountain).multiplyScalar(cwM); color.add(tmp);
+      const wSum = cwD + cwP + cwF + cwM;
       if (wSum > 0) color.multiplyScalar(1 / wSum);
 
-      // Beach band: warm sand tint right above shoreline
-      if (h > SEA_LEVEL && h < SEA_LEVEL + 2.5) {
-        color.lerp(DESERT_COLOR, 0.6);
+      // Beach band: warm sand tint right above shoreline, wider and linked to coast proximity
+      if (h > SEA_LEVEL && h < SEA_LEVEL + BEACH_MAX) {
+        const beachT = THREE.MathUtils.clamp((SEA_LEVEL + BEACH_MAX - h) / BEACH_MAX, 0, 1) * coast;
+        color.lerp(BEACH_SAND_COLOR, 0.4 * beachT + 0.2 * coast);
+      }
+
+      // River coloring on land: tint to river water along carved channels
+      if (riverMask > 0.15 && h > SEA_LEVEL) {
+        const rDepth = THREE.MathUtils.clamp(riverMask, 0, 1);
+        const riverCol = new THREE.Color().lerpColors(RIVER_SHALLOW_COLOR, RIVER_DEEP_COLOR, rDepth);
+        color.lerp(riverCol, 0.6 * rDepth);
       }
     }
 
@@ -397,43 +540,54 @@ function deformPlane(geometry, worldZOffset) {
 
 // Higher-resolution base; each segment gets its own geometry instance
 // Wider plane to cover the viewport at higher altitudes
-const basePlaneGeometry = new THREE.PlaneGeometry(1000, PLANE_LENGTH, 200, 50);
-basePlaneGeometry.rotateX(-Math.PI / 2); // make it horizontal (XZ plane)
+const basePlaneGeometry = new THREE.PlaneGeometry(1000, PLANE_LENGTH, 200, 50); // width, length, segmentsX, segmentsZ
+basePlaneGeometry.rotateX(-Math.PI / 2); // Make horizontal (XZ plane)
 const planeMaterial = new THREE.MeshStandardMaterial({
   map: terrainTexture,
-  vertexColors: true,
+  vertexColors: true, // Use per-vertex colors from deformPlane
   roughness: 0.9,
   metalness: 0.0
 });
 
 // Large water plane at sea level
-const waterGeometry = new THREE.PlaneGeometry(5000, 5000, 1, 1);
-waterGeometry.rotateX(-Math.PI / 2);
-const waterMaterial = new THREE.MeshStandardMaterial({
-  color: 0x1f7a8c,
-  transparent: true,
-  opacity: 0.7,
-  metalness: 0.2,
-  roughness: 0.8
+const waterGeometry = new THREE.PlaneGeometry(5000, 5000, 1, 1); // Big ocean plane
+waterGeometry.rotateX(-Math.PI / 2); // Horizontal
+// Use unlit, opaque material for cheapest water rendering
+const waterMaterial = new THREE.MeshBasicMaterial({
+  color: 0x1f7a8c
 });
 const water = new THREE.Mesh(waterGeometry, waterMaterial);
-water.position.y = SEA_LEVEL + 0.02; // avoid z-fighting
+water.position.y = SEA_LEVEL + 0.02; // Slightly above sea level to avoid z-fighting
 scene.add(water);
+
+// Seabed plane to give depth under oceans and rivers
+const seabedGeometry = new THREE.PlaneGeometry(5000, 5000, 1, 1);
+seabedGeometry.rotateX(-Math.PI / 2);
+const seabedMaterial = new THREE.MeshStandardMaterial({
+  color: 0x9c8f7a, // sandy seabed
+  roughness: 0.95,
+  metalness: 0.0,
+  side: THREE.DoubleSide
+});
+const seabed = new THREE.Mesh(seabedGeometry, seabedMaterial);
+const SEA_DEPTH = 6.0; // seabed depth below sea surface
+seabed.position.y = SEA_LEVEL - SEA_DEPTH;
+scene.add(seabed);
 
 function ensurePlaneSegment(index) {
   if (planeSegments.has(index)) return;
-  const geom = basePlaneGeometry.clone();
+  const geom = basePlaneGeometry.clone(); // Unique geometry per segment (independent deformation)
   const mesh = new THREE.Mesh(geom, planeMaterial);
-  mesh.position.z = -index * PLANE_LENGTH;
-  deformPlane(geom, mesh.position.z);
+  mesh.position.z = -index * PLANE_LENGTH; // Position by segment index
+  deformPlane(geom, mesh.position.z); // Apply noise-based deformation
   scene.add(mesh);
   planeSegments.set(index, mesh);
 }
 
 function cullAndSpawnPlanes() {
-  const centerIndex = Math.floor(-camera.position.z / PLANE_LENGTH);
-  const minIndex = centerIndex - STEPS_BEHIND;
-  const maxIndex = centerIndex + STEPS_AHEAD;
+  const centerIndex = Math.floor(-camera.position.z / PLANE_LENGTH); // Segment index under camera
+  const minIndex = centerIndex - STEPS_BEHIND; // Oldest segment to keep behind
+  const maxIndex = centerIndex + STEPS_AHEAD; // Furthest segment to keep ahead
 
   // Ensure required window exists
   for (let i = minIndex; i <= maxIndex; i++) ensurePlaneSegment(i);
@@ -450,6 +604,69 @@ function cullAndSpawnPlanes() {
 
 // Seed initial terrain window so something is visible even when paused
 cullAndSpawnPlanes();
+
+// Biome preference handlers: adjust biases and reseed offsets
+function rebuildTerrainWithSeed(seed, biases){
+  if (biases){
+    if (biases.desert !== undefined) {
+      window.localStorage.setItem('bias_desert', String(biases.desert));
+      RUNTIME_DESERT_BIAS = biases.desert;
+    }
+    if (biases.plateau !== undefined) {
+      window.localStorage.setItem('bias_plateau', String(biases.plateau));
+      RUNTIME_PLATEAU_BIAS = biases.plateau;
+    }
+    if (biases.forest !== undefined) {
+      window.localStorage.setItem('bias_forest', String(biases.forest));
+      RUNTIME_FOREST_BIAS = biases.forest;
+    }
+    if (biases.mountain !== undefined) {
+      window.localStorage.setItem('bias_mountain', String(biases.mountain));
+      RUNTIME_MOUNTAIN_BIAS = biases.mountain;
+    }
+    if (biases.oceanThreshold !== undefined) {
+      window.localStorage.setItem('ocean_threshold', String(biases.oceanThreshold));
+      RUNTIME_OCEAN_THRESHOLD = biases.oceanThreshold;
+    }
+  }
+  if (seed){ window.localStorage.setItem('terrain_seed', seed); }
+  // Recompute RNG and offsets
+  _seedStr = window.localStorage.getItem('terrain_seed') || String(Math.floor(Math.random()*1e9));
+  _h = xmur3(_seedStr); _rng = sfc32(_h(), _h(), _h(), _h());
+  HEIGHT_OFF_X = _rng()*10000; HEIGHT_OFF_Z = _rng()*10000;
+  HEAT_OFF_X = _rng()*10000; HEAT_OFF_Z = _rng()*10000;
+  MOIST_OFF_X = _rng()*10000; MOIST_OFF_Z = _rng()*10000;
+  OCEAN_OFF_X = _rng()*10000; OCEAN_OFF_Z = _rng()*10000;
+  PLATEAU_OFF_X = _rng()*10000; PLATEAU_OFF_Z = _rng()*10000;
+  // Clear existing segments and rebuild window
+  for (const [,mesh] of planeSegments) { scene.remove(mesh); if (mesh.geometry) mesh.geometry.dispose(); }
+  planeSegments.clear();
+  cullAndSpawnPlanes();
+}
+
+// Apply stored biases
+const _bd = parseFloat(window.localStorage.getItem('bias_desert')||`${DESERT_BIAS}`);
+const _bp = parseFloat(window.localStorage.getItem('bias_plateau')||`${PLATEAU_BIAS}`);
+const _bf = parseFloat(window.localStorage.getItem('bias_forest')||`${FOREST_BIAS}`);
+const _bm = parseFloat(window.localStorage.getItem('bias_mountain')||`${MOUNTAIN_BIAS}`);
+const _ot = parseFloat(window.localStorage.getItem('ocean_threshold')||`${OCEAN_THRESHOLD}`);
+// Note: constants declared above; assign runtime overrides here if present
+RUNTIME_DESERT_BIAS = isNaN(_bd)? DESERT_BIAS : _bd;
+RUNTIME_PLATEAU_BIAS = isNaN(_bp)? PLATEAU_BIAS : _bp;
+RUNTIME_FOREST_BIAS = isNaN(_bf)? FOREST_BIAS : _bf;
+RUNTIME_MOUNTAIN_BIAS = isNaN(_bm)? MOUNTAIN_BIAS : _bm;
+RUNTIME_OCEAN_THRESHOLD = isNaN(_ot)? OCEAN_THRESHOLD : _ot;
+
+const prefButtons = [
+  ['prefMixed',    () => rebuildTerrainWithSeed(String(Math.floor(Math.random()*1e9)), { desert:1.0, plateau:1.0, forest:1.0, mountain:1.0, oceanThreshold:0.58 })],
+  ['prefDesert',   () => rebuildTerrainWithSeed('desert-'+Math.floor(Math.random()*1e9),  { desert:1.8, plateau:0.8, forest:0.6, mountain:0.8, oceanThreshold:0.6 })],
+  ['prefPlateau',  () => rebuildTerrainWithSeed('plateau-'+Math.floor(Math.random()*1e9), { desert:0.8, plateau:1.8, forest:0.8, mountain:0.9, oceanThreshold:0.6 })],
+  ['prefForest',   () => rebuildTerrainWithSeed('forest-'+Math.floor(Math.random()*1e9),  { desert:0.6, plateau:0.9, forest:1.8, mountain:0.8, oceanThreshold:0.62 })],
+  ['prefMountain', () => rebuildTerrainWithSeed('mount-'+Math.floor(Math.random()*1e9),   { desert:0.6, plateau:1.0, forest:0.6, mountain:2.2, oceanThreshold:0.6 })],
+  ['prefIslands',  () => rebuildTerrainWithSeed('island-'+Math.floor(Math.random()*1e9),  { desert:1.0, plateau:1.0, forest:1.0, mountain:1.2, oceanThreshold:0.5 })],
+];
+for (const [id, fn] of prefButtons){ const el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
+
 // Responsive handling
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -494,7 +711,7 @@ function bindHold(button, key) {
 }
 [ [btnForward, 'forward'], [btnBackward, 'backward'], [btnLeft, 'left'], [btnRight, 'right'], [btnUp, 'up'], [btnDown, 'down'], [btnYawL, 'yawL'], [btnYawR, 'yawR'], [btnPitchUp, 'pitchUp'], [btnPitchDown, 'pitchDown'] ].forEach(([b, k]) => bindHold(b, k));
 
-// Keyboard fallback (WASD, QE up/down, J/L yaw)
+// Keyboard fallback (WASD, QE up/down, J/L yaw, I/K pitch)
 window.addEventListener('keydown', (e) => {
   switch (e.key.toLowerCase()) {
     case 'w': camInput.forward = true; break;
@@ -524,12 +741,12 @@ window.addEventListener('keyup', (e) => {
   }
 });
 
-const MANUAL_SPEED = 20; // units/s for manual movement
-const YAW_SPEED = 1.2;   // radians/s
-const PITCH_SPEED = 0.8; // radians/s
-const PITCH_MIN = -Math.PI / 3; // look down limit (~-60deg)
-const PITCH_MAX = Math.PI / 8;  // look up limit (~22.5deg)
-let cameraPitch = 0; // track pitch separately from OrbitControls
+const MANUAL_SPEED = 20; // Manual navigation speed (units/sec)
+const YAW_SPEED = 1.2;   // Yaw rotation speed (radians/sec)
+const PITCH_SPEED = 0.8; // Pitch rotation speed (radians/sec)
+const PITCH_MIN = -Math.PI / 3; // Min pitch (look down)
+const PITCH_MAX = Math.PI / 8;  // Max pitch (look up)
+let cameraPitch = 0; // Accumulated camera pitch
 
 function applyCameraInputs(delta) {
   // Yaw rotates the view direction around Y
@@ -574,7 +791,7 @@ function animate(time) {
 
   // Allow manual camera control regardless of paused state
   applyCameraInputs(delta);
-  // Keep controls target in front of camera based on yaw
+  // Keep controls target in front of camera based on yaw & pitch
   const forwardTarget = new THREE.Vector3(0, 0, -10).applyEuler(new THREE.Euler(cameraPitch, camera.rotation.y, 0));
   const targetPos = new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z).add(forwardTarget);
   controls.target.copy(targetPos);

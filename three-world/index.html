@@ -64,6 +64,16 @@
   <body>
     <button id="toggleAnimBtn">Pause</button>
 
+    <!-- Biome preference panel -->
+    <div id="biomePanel" style="position:fixed; top:12px; left:12px; display:flex; gap:8px; z-index:1000;">
+      <button id="prefMixed"   title="Mixed"   style="padding:6px 10px; border:none; border-radius:6px; background:#0008; color:#fff; cursor:pointer;">Mixed</button>
+      <button id="prefDesert"  title="Desert"  style="padding:6px 10px; border:none; border-radius:6px; background:#0008; color:#fff; cursor:pointer;">🏜️ Desert</button>
+      <button id="prefPlateau" title="Plateau" style="padding:6px 10px; border:none; border-radius:6px; background:#0008; color:#fff; cursor:pointer;">⛰️ Plateau</button>
+      <button id="prefForest"  title="Forest"  style="padding:6px 10px; border:none; border-radius:6px; background:#0008; color:#fff; cursor:pointer;">🌲 Forest</button>
+      <button id="prefMountain"title="Mountain"style="padding:6px 10px; border:none; border-radius:6px; background:#0008; color:#fff; cursor:pointer;">⛰️ Mountain</button>
+      <button id="prefIslands" title="Islands" style="padding:6px 10px; border:none; border-radius:6px; background:#0008; color:#fff; cursor:pointer;">��️ Islands</button>
+    </div>
+
     <div id="cameraControls">
       <button id="btnYawL">⟲</button>
       <button id="btnForward">▲</button>
