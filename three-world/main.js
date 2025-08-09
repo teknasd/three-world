@@ -1,7 +1,13 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js?module';
 import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js?module';
 import Stats from 'https://unpkg.com/three@0.160.0/examples/jsm/libs/stats.module.js?module';
-
+import { ImprovedNoise } from 'https://unpkg.com/three@0.160.0/examples/jsm/math/ImprovedNoise.js?module';
+const textureLoader = new THREE.TextureLoader();
+const terrainTexture = textureLoader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
+terrainTexture.wrapS = THREE.RepeatWrapping;
+terrainTexture.wrapT = THREE.RepeatWrapping;
+terrainTexture.repeat.set(10, 5);
+terrainTexture.colorSpace = THREE.SRGBColorSpace;
 // Scene
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x20232a);
@@ -22,10 +28,12 @@ stats.showPanel(0); // 0: fps
 document.body.appendChild(stats.dom);
 
 // Pause/Resume toggle via button
-let paused = false;
+let paused = true;
 const toggleBtn = document.getElementById('toggleAnimBtn');
 if (toggleBtn) {
+  toggleBtn.textContent = paused ? 'Resume' : 'Pause';
   toggleBtn.addEventListener('click', () => {
+    console.log('toggleAnimBtn clicked', paused);
     paused = !paused;
     toggleBtn.textContent = paused ? 'Resume' : 'Pause';
   });
@@ -50,6 +58,9 @@ document.body.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; // smooth camera motion
 controls.dampingFactor = 0.05;
+// Aim the camera slightly ahead along -Z initially
+controls.target.set(0, 0, camera.position.z - 10);
+controls.update();
 
 // Lights
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -202,7 +213,7 @@ function createRandomShape() {
   return mesh;
 }
 
-const CAMERA_SPEED = 3; // units per second camera flies forward (toward -Z)
+const CAMERA_SPEED = 10; // units per second camera flies forward (toward -Z)
 const DESPAWN_DISTANCE = 10; // how far behind the camera a shape is removed
 const SPAWN_AHEAD_MIN = 5; // spawn closer to camera
 const SPAWN_AHEAD_MAX = 20; // still some depth variety but nearer
@@ -210,43 +221,88 @@ const SPAWN_AHEAD_MAX = 20; // still some depth variety but nearer
 
 // ===== Infinite Ground Plane =====
 const PLANE_LENGTH = 50;
-const NUM_PLANES = 3;
-const planeSegments = [];
+const STEPS_AHEAD = 10;  // how many segments ahead of camera to keep
+const STEPS_BEHIND = 3;  // how many segments behind camera to keep
+const planeSegments = new Map(); // key: integer segment index, value: mesh
 
-// ===== Obstacles (cubes) =====
-const OBSTACLE_SIZE = 1;
-const OBSTACLE_Y = OBSTACLE_SIZE / 2; // sit on plane
-const MAX_OBSTACLES = 50;
-const OBSTACLE_SPAWN_MIN = 2;
-const OBSTACLE_SPAWN_MAX = 50;
+// ===== Procedural surface using Perlin-like ImprovedNoise =====
+const noise = new ImprovedNoise();
+const NOISE_SCALE_X = 0.08;  // frequency across X
+const NOISE_SCALE_Z = 0.08;  // frequency across Z
+const NOISE_HEIGHT = 6.0;    // amplitude of height variation
+const LOW_COLOR = new THREE.Color(0x2e7d32);   // green
+const MID_COLOR = new THREE.Color(0x8d6e63);   // earthy
+const HIGH_COLOR = new THREE.Color(0xcfd8dc);  // light
 
-const obstacles = [];
-
-function createObstacle() {
-  const geometry = new THREE.BoxGeometry(OBSTACLE_SIZE, OBSTACLE_SIZE, OBSTACLE_SIZE);
-  const material = new THREE.MeshStandardMaterial({ color: randomColor() });
-  const cube = new THREE.Mesh(geometry, material);
-  cube.position.set(rand(-20, 20), OBSTACLE_Y, camera.position.z - rand(OBSTACLE_SPAWN_MIN, OBSTACLE_SPAWN_MAX));
-  scene.add(cube);
-  return cube;
+// Deform a plane geometry in-place based on world XZ and an offset
+function deformPlane(geometry, worldZOffset) {
+  const pos = geometry.attributes.position;
+  // Ensure color attribute exists
+  let colorAttr = geometry.getAttribute('color');
+  if (!colorAttr) {
+    colorAttr = new THREE.BufferAttribute(new Float32Array(pos.count * 3), 3);
+    geometry.setAttribute('color', colorAttr);
+  }
+  const color = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i) + worldZOffset;
+    const h = noise.noise(x * NOISE_SCALE_X, 0, z * NOISE_SCALE_Z) * NOISE_HEIGHT;
+    pos.setY(i, h);
+    // Height-based coloring: blend low->mid->high
+    const t = (h + NOISE_HEIGHT) / (NOISE_HEIGHT * 2); // 0..1
+    if (t < 0.5) {
+      color.lerpColors(LOW_COLOR, MID_COLOR, t * 2);
+    } else {
+      color.lerpColors(MID_COLOR, HIGH_COLOR, (t - 0.5) * 2);
+    }
+    colorAttr.setXYZ(i, color.r, color.g, color.b);
+  }
+  pos.needsUpdate = true;
+  colorAttr.needsUpdate = true;
+  geometry.computeVertexNormals();
 }
 
-// Seed initial obstacles
-for (let i = 0; i < MAX_OBSTACLES; i++) {
-  obstacles.push(createObstacle());
+// Higher-resolution base; each segment gets its own geometry instance
+const basePlaneGeometry = new THREE.PlaneGeometry(100, PLANE_LENGTH, 100, 50);
+basePlaneGeometry.rotateX(-Math.PI / 2); // make it horizontal (XZ plane)
+const planeMaterial = new THREE.MeshStandardMaterial({
+  map: terrainTexture,
+  vertexColors: true,
+  roughness: 0.9,
+  metalness: 0.0
+});
+
+function ensurePlaneSegment(index) {
+  if (planeSegments.has(index)) return;
+  const geom = basePlaneGeometry.clone();
+  const mesh = new THREE.Mesh(geom, planeMaterial);
+  mesh.position.z = -index * PLANE_LENGTH;
+  deformPlane(geom, mesh.position.z);
+  scene.add(mesh);
+  planeSegments.set(index, mesh);
 }
 
-const planeGeometry = new THREE.PlaneGeometry(100, PLANE_LENGTH);
-planeGeometry.rotateX(-Math.PI / 2); // make it horizontal (XZ plane)
-const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x555555 });
+function cullAndSpawnPlanes() {
+  const centerIndex = Math.floor(-camera.position.z / PLANE_LENGTH);
+  const minIndex = centerIndex - STEPS_BEHIND;
+  const maxIndex = centerIndex + STEPS_AHEAD;
 
-for (let i = 0; i < NUM_PLANES; i++) {
-  const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-  plane.position.z = -i * PLANE_LENGTH;
-  scene.add(plane);
-  planeSegments.push(plane);
+  // Ensure required window exists
+  for (let i = minIndex; i <= maxIndex; i++) ensurePlaneSegment(i);
+
+  // Remove any segments outside window
+  for (const [idx, mesh] of Array.from(planeSegments.entries())) {
+    if (idx < minIndex || idx > maxIndex) {
+      scene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+      planeSegments.delete(idx);
+    }
+  }
 }
 
+// Seed initial terrain window so something is visible even when paused
+cullAndSpawnPlanes();
 // Responsive handling
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -264,36 +320,16 @@ function animate(time) {
   controls.update(); // required when enableDamping or autoRotate is used
   stats.update(); // refresh FPS meter
 
+  // Maintain terrain window every frame (independent of pause)
+  cullAndSpawnPlanes();
+
   if (!paused) {
-    // (shape handling removed)
+    // Move camera forward (toward -Z)
+    camera.position.z -= CAMERA_SPEED * delta;
 
-    // Recycle plane segments to create endless ground
-    for (const plane of planeSegments) {
-      if (camera.position.z < plane.position.z - PLANE_LENGTH) {
-        plane.position.z -= PLANE_LENGTH * NUM_PLANES;
-      }
-    }
-
-    // Recycle obstacles behind camera and spawn new ones ahead
-    for (let i = obstacles.length - 1; i >= 0; i--) {
-      const obs = obstacles[i];
-      if (obs.position.z - camera.position.z > DESPAWN_DISTANCE) {
-        disposeMesh(obs);
-        obstacles.splice(i, 1);
-      }
-    }
-
-    while (obstacles.length < MAX_OBSTACLES) {
-      const newObs = createObstacle();
-      obstacles.push(newObs);
-    }
+    // Keep camera looking slightly ahead along its travel direction via controls target
+    controls.target.set(0, 0, camera.position.z - 10);
   }
-
-  // Move camera forward (toward -Z)
-  camera.position.z -= CAMERA_SPEED * delta;
-
-  // Keep camera looking slightly ahead along its travel direction
-  camera.lookAt(new THREE.Vector3(0, 0, camera.position.z - 10));
 
   renderer.render(scene, camera);
 }
