@@ -33,11 +33,11 @@ document.body.appendChild(stats.dom);
 let paused = true; // Start paused so scene is visible before motion
 const toggleBtn = document.getElementById('toggleAnimBtn');
 if (toggleBtn) {
-  toggleBtn.textContent = paused ? 'Resume' : 'Pause';
+  toggleBtn.textContent = paused ? '▶️' : '⏸️';
   toggleBtn.addEventListener('click', () => {
     console.log('toggleAnimBtn clicked', paused);
     paused = !paused;
-    toggleBtn.textContent = paused ? 'Resume' : 'Pause';
+    toggleBtn.textContent = paused ? '▶️' : '⏸️';
   });
 }
 
@@ -57,6 +57,31 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
+
+// Recenter threshold to avoid floating-point jitter at large coordinates
+const RECENTER_THRESHOLD = 1000; // units
+function recenterWorldIfNeeded() {
+  const ax = Math.abs(camera.position.x);
+  const az = Math.abs(camera.position.z);
+  if (ax < RECENTER_THRESHOLD && az < RECENTER_THRESHOLD) return;
+  const dx = camera.position.x;
+  const dz = camera.position.z;
+  // Shift terrain segments
+  for (const [, mesh] of planeSegments) {
+    mesh.position.x -= dx;
+    mesh.position.z -= dz;
+  }
+  // Shift big planes
+  if (water) { water.position.x -= dx; water.position.z -= dz; }
+  if (seabed) { seabed.position.x -= dx; seabed.position.z -= dz; }
+  // Keep skydome centered on camera implicitly by moving it too
+  if (typeof sky !== 'undefined' && sky) { sky.position.x -= dx; sky.position.z -= dz; }
+  // Adjust controls target and reset camera
+  controls.target.x -= dx;
+  controls.target.z -= dz;
+  camera.position.x = 0;
+  camera.position.z = 0;
+}
 
 // Controls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -302,7 +327,8 @@ const SNOW_COLOR = new THREE.Color(0xffffff); // Snow color
 const ICE_COLOR = new THREE.Color(0xcfe9ff); // Ice tint for very cold snow
 const SHORE_RANGE = 8.0; // Vertical range over which land eases into sea level (wider = gentler)
 const BEACH_SAND_COLOR = new THREE.Color(0xE2C199); // Warm beach sand
-const BEACH_MAX = 6.0; // Beach band height above sea level
+const BEACH_MAX = 12.0; // Beach band height above sea level (wider beaches)
+const BEACH_FLAT_TARGET = () => SEA_LEVEL + 1.5; // gentle flat beach target height
 
 // Runtime-adjustable biome biases (initialized to defaults, can be overridden after load)
 let RUNTIME_DESERT_BIAS = DESERT_BIAS;
@@ -467,11 +493,14 @@ function deformPlane(geometry, worldZOffset) {
       // Peak detail (ridged) for spiky tops
       const peakNoise = 1 - Math.abs(noise.noise((warped.x + HEIGHT_OFF_X) * MOUNTAIN_PEAK_SCALE, 900, (warped.z + HEIGHT_OFF_Z) * MOUNTAIN_PEAK_SCALE));
       const peak = Math.pow(THREE.MathUtils.clamp(peakNoise, 0, 1), MOUNTAIN_PEAK_SHARPNESS);
-      const uplift = wm * rangeMask * peak * 40.0; // Scale peak uplift for new height system
+      // Attenuate uplift near coast and low elevations to avoid cliffs into water
+      const coastAtten = Math.pow(1.0 - THREE.MathUtils.clamp(oceanW, 0, 1), 1.5);
+      const elevAtten = THREE.MathUtils.clamp((hBase - SEA_LEVEL) / 60.0, 0.0, 1.0);
+      const uplift = wm * rangeMask * peak * 40.0 * coastAtten * elevAtten;
       hBase += uplift;
-      // Carve broad valleys between ranges to emphasize ridges
+      // Carve broad valleys between ranges to emphasize ridges (attenuated near coast/low elev)
       const valley = (noise.noise(warped.x * MOUNTAIN_VALLEY_SCALE, 1200, warped.z * MOUNTAIN_VALLEY_SCALE) + 1) * 0.5;
-      hBase -= (1 - rangeMask) * wm * valley * 10.0; // Scale valley carving
+      hBase -= (1 - rangeMask) * wm * valley * 10.0 * coastAtten * elevAtten;
     }
 
     // Rivers: carve channels along Perlin zero-crossings, prefer gentle slopes & moist areas
@@ -487,8 +516,8 @@ function deformPlane(geometry, worldZOffset) {
 
     // Plateaus: quantize where mask is strong
     const plateauMask = noise.noise((x + PLATEAU_OFF_X) * PLATEAU_SCALE, 200, (z + PLATEAU_OFF_Z) * PLATEAU_SCALE);
-    if (plateauMask > PLATEAU_THRESHOLD) {
-      hBase = Math.round(hBase / 5.0) * 5.0; // Quantize to 5-unit steps
+    if (plateauMask > 0.8 && hBase >= 120.0 && hBase <= 140.0) {
+      hBase = Math.round(hBase / 2.0) * 2.0; // Finer steps and only in plateau band
     }
 
     // Final height clamping and sea interaction
@@ -498,6 +527,11 @@ function deformPlane(geometry, worldZOffset) {
       const oceanFlatten = Math.pow(oceanW, 0.8);
       h = THREE.MathUtils.lerp(h, SEA_LEVEL * 0.5, oceanFlatten); // Blend toward half sea level (10) in ocean areas
     }
+    // Flatten beach geometry slightly for a more visible, smooth shoreline
+    if (h >= SEA_LEVEL && h < SEA_LEVEL + BEACH_MAX) {
+      const tBeach = (SEA_LEVEL + BEACH_MAX - h) / BEACH_MAX; // higher near waterline
+      h = THREE.MathUtils.lerp(h, BEACH_FLAT_TARGET(), THREE.MathUtils.clamp(tBeach, 0, 1) * 0.6);
+    }
     h = THREE.MathUtils.clamp(h, 0, 200); // Final clamp
     pos.setY(i, h);
 
@@ -506,34 +540,35 @@ function deformPlane(geometry, worldZOffset) {
       // Solid water color (no per-vertex depth blending)
       color.copy(WATER_SOLID);
     } else {
-      // Height-based color bands
-      if (h >= 180.0) {
-        // 180-200: Ice peaks
-        color.copy(ICE_COLOR);
-      } else if (h >= 140.0) {
-        // 140-180: Mountains (rock/snow blend)
+      // Smooth gradient blending across elevation bands to avoid harsh color steps
+      const blend = (x, a0, a1) => THREE.MathUtils.clamp((x - a0) / Math.max(1e-6, (a1 - a0)), 0, 1);
+      const wBeach = (h >= SEA_LEVEL && h < SEA_LEVEL + BEACH_MAX) ? blend(h, SEA_LEVEL, SEA_LEVEL + BEACH_MAX) : 0.0;
+      const wPlains = (h >= 20.0 && h < 60.0) ? 1.0 - Math.abs((h - 40.0) / 40.0) : 0.0; // triangular weight
+      const wForest = (h >= 60.0 && h < 120.0) ? 1.0 - Math.abs((h - 90.0) / 60.0) : 0.0;
+      const wPlateau = (h >= 120.0 && h < 140.0) ? 1.0 - Math.abs((h - 130.0) / 20.0) : 0.0;
+      const wMtn = (h >= 140.0 && h < 180.0) ? 1.0 - Math.abs((h - 160.0) / 40.0) : 0.0;
+      const wIce = (h >= 180.0) ? blend(h, 180.0, 200.0) : 0.0;
+      let sw = wBeach + wPlains + wForest + wPlateau + wMtn + wIce;
+      if (sw < 1e-6) sw = 1.0;
+      color.setRGB(0,0,0);
+      const tmp = new THREE.Color();
+      tmp.copy(BEACH_SAND_COLOR).multiplyScalar(wBeach); color.add(tmp);
+      tmp.copy(GRASS_COLOR).multiplyScalar(wPlains); color.add(tmp);
+      tmp.copy(FOREST_COLOR).multiplyScalar(wForest); color.add(tmp);
+      tmp.copy(PLATEAU_COLOR).multiplyScalar(wPlateau); color.add(tmp);
+      // Mountains blend rock->snow within 140-180, then ice above
+      if (wMtn > 0) {
         const snowT = THREE.MathUtils.clamp((h - 140.0) / 40.0, 0, 1);
-        color.lerpColors(ROCK_COLOR, SNOW_COLOR, snowT);
-      } else if (h >= 120.0) {
-        // 120-140: Plateau
-        color.copy(PLATEAU_COLOR);
-      } else if (h >= 60.0) {
-        // 60-120: Forests
-        color.copy(FOREST_COLOR);
-      } else if (h >= 20.0) {
-        // 20-60: Plains/desert
-        color.copy(GRASS_COLOR);
-      } else {
-        // 0-20: Should be underwater, but show as beach sand near shore
-        color.copy(BEACH_SAND_COLOR);
+        tmp.lerpColors(ROCK_COLOR, SNOW_COLOR, snowT).multiplyScalar(wMtn); color.add(tmp);
       }
-      // Beach band: warm sand tint right above shoreline, wider and linked to coast proximity
-      if (h > SEA_LEVEL && h < SEA_LEVEL + BEACH_MAX) {
-        const beachT = THREE.MathUtils.clamp((SEA_LEVEL + BEACH_MAX - h) / BEACH_MAX, 0, 1);
-        color.lerp(BEACH_SAND_COLOR, 0.6 * beachT);
-      }
+      tmp.copy(ICE_COLOR).multiplyScalar(wIce); color.add(tmp);
+      color.multiplyScalar(1.0 / sw);
     }
 
+    // Beach band: strict sand color right above shoreline
+    if (h >= SEA_LEVEL && h < SEA_LEVEL + BEACH_MAX) {
+      color.copy(BEACH_SAND_COLOR);
+    }
     colorAttr.setXYZ(i, color.r, color.g, color.b);
   }
   pos.needsUpdate = true;
@@ -854,6 +889,9 @@ function animate(time) {
     camera.position.z -= CAMERA_SPEED * delta;
     // Controls target already maintained above
   }
+
+  // Recenter world to prevent precision-induced camera shake
+  recenterWorldIfNeeded();
 
   renderer.render(scene, camera);
 }
