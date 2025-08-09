@@ -2,12 +2,13 @@ import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js?mo
 import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js?module';
 import Stats from 'https://unpkg.com/three@0.160.0/examples/jsm/libs/stats.module.js?module';
 import { ImprovedNoise } from 'https://unpkg.com/three@0.160.0/examples/jsm/math/ImprovedNoise.js?module';
-const textureLoader = new THREE.TextureLoader();
-const terrainTexture = textureLoader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
-terrainTexture.wrapS = THREE.RepeatWrapping;
-terrainTexture.wrapT = THREE.RepeatWrapping;
-terrainTexture.repeat.set(100, 5); // Texture tiling on X/Z of each plane segment
-terrainTexture.colorSpace = THREE.SRGBColorSpace; // Ensure texture is treated as sRGB for correct color
+// Texture loading removed for performance; using solid colors via vertexColors only
+// const textureLoader = new THREE.TextureLoader();
+// const terrainTexture = textureLoader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
+// terrainTexture.wrapS = THREE.RepeatWrapping;
+// terrainTexture.wrapT = THREE.RepeatWrapping;
+// terrainTexture.repeat.set(100, 5); // Texture tiling on X/Z of each plane segment
+// terrainTexture.colorSpace = THREE.SRGBColorSpace; // Ensure texture is treated as sRGB for correct color
 // Scene
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fc4e7); // Sky color
@@ -48,7 +49,7 @@ const camera = new THREE.PerspectiveCamera(
   1000 // Far plane (must see far terrain)
 );
 camera.position.z = 10; // Start Z
-camera.position.y = 60; // Start height above terrain
+camera.position.y = 400; // Start height above terrain
 
 // Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true }); // Smooth edges
@@ -242,8 +243,8 @@ const MOUNTAIN_SHARP_EXTRA = 8; // Legacy sharp cap height
 const MOUNTAIN_SHARPNESS = 3.0; // Legacy sharpness exponent
 
 // Biome helpers
-const SEA_LEVEL = 6.0; // Water plane height (raised)
-const SNOW_HEIGHT = 10.0; // Base snowline height (lowered in cold regions)
+const SEA_LEVEL = 20.0; // New sea level at 20
+const SNOW_HEIGHT = 180.0; // Ice peaks start at 180
 const PLATEAU_SCALE = 0.05; // Plateau mask frequency
 const PLATEAU_THRESHOLD = 0.6; // Strength threshold for plateau quantization
 const PLATEAU_STEP = 1.5; // Plateau step height for quantization
@@ -251,16 +252,16 @@ const PLATEAU_STEP = 1.5; // Plateau step height for quantization
 const HEAT_SCALE = 0.002; // Controls size of hot/cold zones
 const MOISTURE_FIELD_SCALE = 0.002; // Controls size of wet/dry zones
 const OCEAN_SCALE = 0.0015; // Controls size of ocean/land blobs
-const OCEAN_THRESHOLD = 0.54; // Ocean mask threshold (lower = more ocean)
-const OCEAN_BAND = 0.08; // Softer, wider ocean edge band
+const OCEAN_THRESHOLD = 0.64; // Ocean mask threshold (higher = less ocean)
+const OCEAN_BAND = 0.05; // Narrower ocean edge band
 // Biome prevalence/shape controls
-const DESERT_BIAS = 1.0;   // >1 increases desert
-const FOREST_BIAS = 0.85;  // <1 reduces forest dominance
-const MOUNTAIN_BIAS = 10; // >1 increases mountain presence
+const DESERT_BIAS = 0.8;   // reduce desert
+const FOREST_BIAS = 2.2;   // increase forest dominance
+const MOUNTAIN_BIAS = 1.4; // reduce mountain dominance
 const PLATEAU_BIAS = 1.0;  // plateau weighting
-const HEAT_SHARP = 1.2;    // emphasize hot/cold
-const MOIST_SHARP = 1.15;  // emphasize wet/dry
-const MID_EXP = 1.2;       // emphasize mid heat/moist for plateau/forest
+const HEAT_SHARP = 1.0;    // softer shaping for more mid climates
+const MOIST_SHARP = 1.0;   // softer shaping
+const MID_EXP = 1.0;       // neutral mid emphasis
 // fBm height + domain warp
 const FBM_OCTAVES = 4;         // macro octaves for base height
 const FBM_GAIN = 0.5;          // amplitude falloff per octave
@@ -322,9 +323,9 @@ const MOUNTAIN_PEAK_SHARPNESS = 2.2;    // sharpness of peaks
 const MOUNTAIN_VALLEY_SCALE = 0.01;     // broad valley frequency
 const MOUNTAIN_VALLEY_DEPTH = 6.0;      // how much to carve valleys
 // Rivers
-const RIVER_SCALE = 0.0022;             // river path frequency (lower = longer, fewer rivers)
-const RIVER_WIDTH = 0.045;              // visual width of river corridors (controls mask softness)
-const RIVER_DEPTH = 3.8;                // how deep to carve channels into terrain
+const RIVER_SCALE = 0.0016;             // lower frequency (fewer rivers)
+const RIVER_WIDTH = 0.03;               // narrower core (thinner rivers)
+const RIVER_DEPTH = 1.6;                // shallower carving
 const RIVER_BANK_BAND = 2.0;            // bank band height above riverbed for coloring
 const RIVER_DEEP_COLOR = new THREE.Color(0x1a4b7a);
 const RIVER_SHALLOW_COLOR = new THREE.Color(0x2b6ea6);
@@ -408,7 +409,7 @@ function deformPlane(geometry, worldZOffset) {
 
     // 2D weights driven purely by fields (ocean masks everything)
     let wd = (1 - oceanW) * RUNTIME_DESERT_BIAS   * (hot * dry);
-    let wf = (1 - oceanW) * RUNTIME_FOREST_BIAS   * (wet * midHeat);
+    let wf = (1 - oceanW) * RUNTIME_FOREST_BIAS   * (wet * (0.7*midHeat + 0.3)); // allow greener lowlands
     let wpl = (1 - oceanW) * RUNTIME_PLATEAU_BIAS * (midHeat * midMoist);
     let wm = (1 - oceanW) * RUNTIME_MOUNTAIN_BIAS * (cold * dry) + (1 - oceanW) * (MOUNTAIN_RIDGE_FACTOR * ridgeBoost);
     let wo = oceanW; // Ocean weight
@@ -417,21 +418,35 @@ function deformPlane(geometry, worldZOffset) {
     let terrSum = wd + wpl + wf + wm;
     if (terrSum > 0) { wd/=terrSum; wpl/=terrSum; wf/=terrSum; wm/=terrSum; }
 
-    // Biome-weighted height ranges
-    const desertMin = 0.0, desertMax = 5.0; // Plains/desert height range
-    const plateauMin = 10.0, plateauMax = 40.0; // Plateau height range
-    const forestMin = 5.0, forestMax = 20.0; // Forest height range
-    const mountainMin = 30.0, mountainMax = 80.0; // Mountain height range
-
-    const hDesert = desertMin + (desertMax - desertMin) * n;
-    const hPlateau = plateauMin + (plateauMax - plateauMin) * n;
-    const hForest = forestMin + (forestMax - forestMin) * n;
-    const hMountain = mountainMin + (mountainMax - mountainMin) * n;
-
-    const wSumLocal = wd + wpl + wf + wm;
-    let hBase = (wSumLocal > 0)
-      ? (hDesert * wd + hPlateau * wpl + hForest * wf + hMountain * wm) / wSumLocal
-      : 0.0;
+    // Height-based elevation system: 0-20 seabed/water, 20-60 plains, 60-120 forests, 120-140 plateau, 140-180 mountains, 180-200 ice peaks
+    // Map noise (0..1) to full elevation range (0..200) with biome influence on distribution
+    let hRaw = n * 200.0; // Raw height 0-200
+    
+    // Apply biome influence to shift height distribution
+    // Ocean areas stay low, deserts stay in plains range, forests in forest range, etc.
+    let hBiased = hRaw;
+    if (oceanW > 0.1) {
+      // Ocean areas: strongly bias toward 0-20 range
+      hBiased = hRaw * 0.1; // compress to 0-20
+    } else {
+      // Land areas: apply biome-based height shifts
+      const biasStrength = 0.6;
+      if (wd > 0.3) {
+        // Desert bias toward plains (20-60)
+        hBiased = THREE.MathUtils.lerp(hRaw, 20 + (hRaw * 0.2), biasStrength);
+      } else if (wf > 0.3) {
+        // Forest bias toward forest range (60-120)
+        hBiased = THREE.MathUtils.lerp(hRaw, 60 + (hRaw * 0.3), biasStrength);
+      } else if (wpl > 0.3) {
+        // Plateau bias toward plateau range (120-140)
+        hBiased = THREE.MathUtils.lerp(hRaw, 120 + (hRaw * 0.1), biasStrength);
+      } else if (wm > 0.3) {
+        // Mountain bias toward mountain/peak range (140-200)
+        hBiased = THREE.MathUtils.lerp(hRaw, 140 + (hRaw * 0.3), biasStrength);
+      }
+    }
+    
+    let hBase = THREE.MathUtils.clamp(hBiased, 0, 200);
 
     // Add sharp mountain ranges using ridged uplift, only where mountain weight is high
     if (wm > 0.05) {
@@ -441,11 +456,11 @@ function deformPlane(geometry, worldZOffset) {
       // Peak detail (ridged) for spiky tops
       const peakNoise = 1 - Math.abs(noise.noise((warped.x + HEIGHT_OFF_X) * MOUNTAIN_PEAK_SCALE, 900, (warped.z + HEIGHT_OFF_Z) * MOUNTAIN_PEAK_SCALE));
       const peak = Math.pow(THREE.MathUtils.clamp(peakNoise, 0, 1), MOUNTAIN_PEAK_SHARPNESS);
-      const uplift = wm * rangeMask * peak * MOUNTAIN_PEAK_HEIGHT;
+      const uplift = wm * rangeMask * peak * 40.0; // Scale peak uplift for new height system
       hBase += uplift;
       // Carve broad valleys between ranges to emphasize ridges
       const valley = (noise.noise(warped.x * MOUNTAIN_VALLEY_SCALE, 1200, warped.z * MOUNTAIN_VALLEY_SCALE) + 1) * 0.5;
-      hBase -= (1 - rangeMask) * wm * valley * MOUNTAIN_VALLEY_DEPTH;
+      hBase -= (1 - rangeMask) * wm * valley * 10.0; // Scale valley carving
     }
 
     // Rivers: carve channels along Perlin zero-crossings, prefer gentle slopes & moist areas
@@ -453,81 +468,58 @@ function deformPlane(geometry, worldZOffset) {
     const riverCore = 1.0 - THREE.MathUtils.smoothstep(0.0, RIVER_WIDTH, Math.abs(riverField)); // ~1 at zero-crossing lines
     const lowSlope = 1.0 - THREE.MathUtils.clamp(slope * 3.0, 0, 1); // prefer flats
     const moistFavor = Math.pow(THREE.MathUtils.clamp(moist, 0, 1), 1.2);
-    let riverMask = riverCore * lowSlope * moistFavor;
+    let riverMask = 0.6 * riverCore * lowSlope * moistFavor; // global reduction
     // Only carve where above sea to avoid conflicts with ocean flattening
     if (hBase > SEA_LEVEL + 0.2) {
-      hBase -= riverMask * RIVER_DEPTH;
+      hBase -= riverMask * 5.0; // Scale river depth for new system
     }
 
     // Plateaus: quantize where mask is strong
     const plateauMask = noise.noise((x + PLATEAU_OFF_X) * PLATEAU_SCALE, 200, (z + PLATEAU_OFF_Z) * PLATEAU_SCALE);
     if (plateauMask > PLATEAU_THRESHOLD) {
-      hBase = Math.round(hBase / PLATEAU_STEP) * PLATEAU_STEP;
+      hBase = Math.round(hBase / 5.0) * 5.0; // Quantize to 5-unit steps
     }
 
-    // Sea: enforce monotonic transition to water using ocean flatten factor
-    const hRaw = hBase;
-    const oceanFlatten = Math.pow(wo, 1.2); // suppression as ocean increases
-    const landBase = hBase; // allow terrain to go below sea for underwater relief
-    const shelf = SEA_LEVEL - 0.8; // shallow shelf slightly below sea level
-    const towardShelf = THREE.MathUtils.lerp(landBase, shelf, Math.max(coast, oceanFlatten));
-    const h = THREE.MathUtils.lerp(towardShelf, SEA_LEVEL, oceanFlatten); // no re-raising beyond coast
+    // Final height clamping and sea interaction
+    let h = hBase;
+    // Smooth transition to sea level in ocean areas
+    if (oceanW > 0.1) {
+      const oceanFlatten = Math.pow(oceanW, 0.8);
+      h = THREE.MathUtils.lerp(h, SEA_LEVEL * 0.5, oceanFlatten); // Blend toward half sea level (10) in ocean areas
+    }
+    h = THREE.MathUtils.clamp(h, 0, 200); // Final clamp
     pos.setY(i, h);
 
-    // Mountain sub-blend: dynamic snowline (colder = more snow) and ice tint for very cold
-    const coldBoost = THREE.MathUtils.clamp(0.5 - heat, 0, 1) * 15.0; // Lower snowline up to 15 units in cold zones
-    const snowHeight = SNOW_HEIGHT - coldBoost; // Local snowline
-    const snowRange = 12.0; // Blend range for snow cover
-    const snowT = THREE.MathUtils.clamp((h - snowHeight) / snowRange, 0.0, 1.0); // 0..1 snow factor
-    const mountainBase = new THREE.Color().lerpColors(ROCK_COLOR, SNOW_COLOR, snowT);
-    const iceT = THREE.MathUtils.smoothstep(0.0, 0.35, 1.0 - heat) * snowT; // Ice only in cold + snowy areas
-    const mountainCol = new THREE.Color().lerpColors(mountainBase, ICE_COLOR, iceT);
-
-    // Elevation-coupled softmax weights for color (more mountains with elevation, less desert)
-    const elevNorm = THREE.MathUtils.clamp((hBase - 5.0) / (80.0 - 0.0), 0, 1);
-    let cwD = wd * (1.0 - 0.5 * elevNorm);
-    let cwP = wpl * (0.6 + 0.8 * (1 - Math.abs(elevNorm - 0.5) * 2));
-    let cwF = wf * (0.7 + 0.6 * (1 - Math.abs(elevNorm - 0.5) * 2));
-    let cwM = wm * (0.6 + 1.2 * elevNorm);
-    // Softmax
-    const eD = Math.exp(cwD / SOFTMAX_TAU);
-    const eP = Math.exp(cwP / SOFTMAX_TAU);
-    const eF = Math.exp(cwF / SOFTMAX_TAU);
-    const eM = Math.exp(cwM / SOFTMAX_TAU);
-    const eSum = eD + eP + eF + eM;
-    cwD = eD / eSum; cwP = eP / eSum; cwF = eF / eSum; cwM = eM / eSum;
-
-    // Mix biome colors with ocean override
-    const colDesert = DESERT_COLOR;
-    const colPlateau = PLATEAU_COLOR;
-    const colForest = new THREE.Color().lerpColors(GRASS_COLOR, FOREST_COLOR, 0.5);
-    const colMountain = mountainCol;
-
-    if (Math.pow(wo, 1.2) > 0.05) {
+    // Height-based color assignment (ignoring biome weights, purely elevation-driven)
+    if (h < SEA_LEVEL) {
       // Solid water color (no per-vertex depth blending)
       color.copy(WATER_SOLID);
     } else {
-      // Blend terrain colors
-      const tmp = new THREE.Color();
-      color.setRGB(0, 0, 0);
-      tmp.copy(colDesert).multiplyScalar(cwD); color.add(tmp);
-      tmp.copy(colPlateau).multiplyScalar(cwP); color.add(tmp);
-      tmp.copy(colForest).multiplyScalar(cwF); color.add(tmp);
-      tmp.copy(colMountain).multiplyScalar(cwM); color.add(tmp);
-      const wSum = cwD + cwP + cwF + cwM;
-      if (wSum > 0) color.multiplyScalar(1 / wSum);
-
+      // Height-based color bands
+      if (h >= 180.0) {
+        // 180-200: Ice peaks
+        color.copy(ICE_COLOR);
+      } else if (h >= 140.0) {
+        // 140-180: Mountains (rock/snow blend)
+        const snowT = THREE.MathUtils.clamp((h - 140.0) / 40.0, 0, 1);
+        color.lerpColors(ROCK_COLOR, SNOW_COLOR, snowT);
+      } else if (h >= 120.0) {
+        // 120-140: Plateau
+        color.copy(PLATEAU_COLOR);
+      } else if (h >= 60.0) {
+        // 60-120: Forests
+        color.copy(FOREST_COLOR);
+      } else if (h >= 20.0) {
+        // 20-60: Plains/desert
+        color.copy(GRASS_COLOR);
+      } else {
+        // 0-20: Should be underwater, but show as beach sand near shore
+        color.copy(BEACH_SAND_COLOR);
+      }
       // Beach band: warm sand tint right above shoreline, wider and linked to coast proximity
       if (h > SEA_LEVEL && h < SEA_LEVEL + BEACH_MAX) {
-        const beachT = THREE.MathUtils.clamp((SEA_LEVEL + BEACH_MAX - h) / BEACH_MAX, 0, 1) * coast;
-        color.lerp(BEACH_SAND_COLOR, 0.4 * beachT + 0.2 * coast);
-      }
-
-      // River coloring on land: tint to river water along carved channels
-      if (riverMask > 0.15 && h > SEA_LEVEL) {
-        const rDepth = THREE.MathUtils.clamp(riverMask, 0, 1);
-        const riverCol = new THREE.Color().lerpColors(RIVER_SHALLOW_COLOR, RIVER_DEEP_COLOR, rDepth);
-        color.lerp(riverCol, 0.6 * rDepth);
+        const beachT = THREE.MathUtils.clamp((SEA_LEVEL + BEACH_MAX - h) / BEACH_MAX, 0, 1);
+        color.lerp(BEACH_SAND_COLOR, 0.6 * beachT);
       }
     }
 
@@ -542,11 +534,9 @@ function deformPlane(geometry, worldZOffset) {
 // Wider plane to cover the viewport at higher altitudes
 const basePlaneGeometry = new THREE.PlaneGeometry(1000, PLANE_LENGTH, 200, 50); // width, length, segmentsX, segmentsZ
 basePlaneGeometry.rotateX(-Math.PI / 2); // Make horizontal (XZ plane)
-const planeMaterial = new THREE.MeshStandardMaterial({
-  map: terrainTexture,
+const planeMaterial = new THREE.MeshBasicMaterial({
   vertexColors: true, // Use per-vertex colors from deformPlane
-  roughness: 0.9,
-  metalness: 0.0
+  fog: true
 });
 
 // Large water plane at sea level
@@ -563,15 +553,12 @@ scene.add(water);
 // Seabed plane to give depth under oceans and rivers
 const seabedGeometry = new THREE.PlaneGeometry(5000, 5000, 1, 1);
 seabedGeometry.rotateX(-Math.PI / 2);
-const seabedMaterial = new THREE.MeshStandardMaterial({
+const seabedMaterial = new THREE.MeshBasicMaterial({
   color: 0x9c8f7a, // sandy seabed
-  roughness: 0.95,
-  metalness: 0.0,
   side: THREE.DoubleSide
 });
 const seabed = new THREE.Mesh(seabedGeometry, seabedMaterial);
-const SEA_DEPTH = 6.0; // seabed depth below sea surface
-seabed.position.y = SEA_LEVEL - SEA_DEPTH;
+seabed.position.y = 0.0; // Seabed at absolute 0
 scene.add(seabed);
 
 function ensurePlaneSegment(index) {
@@ -604,6 +591,25 @@ function cullAndSpawnPlanes() {
 
 // Seed initial terrain window so something is visible even when paused
 cullAndSpawnPlanes();
+
+// Fog toggle
+const fogBtn = document.getElementById('toggleFogBtn');
+let fogEnabled = !!scene.fog;
+function setFogEnabled(enabled) {
+  if (enabled) {
+    scene.fog = new THREE.Fog(scene.background, 80, 700);
+  } else {
+    scene.fog = null;
+  }
+  if (fogBtn) fogBtn.textContent = `Fog: ${enabled ? 'On' : 'Off'}`;
+}
+if (fogBtn) {
+  setFogEnabled(fogEnabled);
+  fogBtn.addEventListener('click', () => {
+    fogEnabled = !fogEnabled;
+    setFogEnabled(fogEnabled);
+  });
+}
 
 // Biome preference handlers: adjust biases and reseed offsets
 function rebuildTerrainWithSeed(seed, biases){
