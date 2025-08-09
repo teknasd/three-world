@@ -49,11 +49,13 @@ const camera = new THREE.PerspectiveCamera(
   1000 // Far plane (must see far terrain)
 );
 camera.position.z = 10; // Start Z
-camera.position.y = 400; // Start height above terrain
+camera.position.y = 200; // Start height above terrain
 
 // Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true }); // Smooth edges
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // Controls
@@ -70,7 +72,16 @@ scene.add(ambientLight);
 
 const directionalLight = new THREE.DirectionalLight(0xffe0b2, 1.0); // Warm sun light
 directionalLight.position.set(10, 15, 8); // Sun position
-directionalLight.castShadow = false; // Shadow disabled (perf)
+directionalLight.castShadow = true;
+directionalLight.shadow.mapSize.set(1024, 1024);
+directionalLight.shadow.camera.near = 1;
+directionalLight.shadow.camera.far = 5000;
+directionalLight.shadow.bias = -0.0005;
+// Shadow camera bounds (cover wide terrain)
+directionalLight.shadow.camera.left = -2000;
+directionalLight.shadow.camera.right = 2000;
+directionalLight.shadow.camera.top = 2000;
+directionalLight.shadow.camera.bottom = -2000;
 scene.add(directionalLight);
 
 // Cube
@@ -534,8 +545,8 @@ function deformPlane(geometry, worldZOffset) {
 // Wider plane to cover the viewport at higher altitudes
 const basePlaneGeometry = new THREE.PlaneGeometry(1000, PLANE_LENGTH, 200, 50); // width, length, segmentsX, segmentsZ
 basePlaneGeometry.rotateX(-Math.PI / 2); // Make horizontal (XZ plane)
-const planeMaterial = new THREE.MeshBasicMaterial({
-  vertexColors: true, // Use per-vertex colors from deformPlane
+const planeMaterial = new THREE.MeshLambertMaterial({
+  vertexColors: true,
   fog: true
 });
 
@@ -548,6 +559,7 @@ const waterMaterial = new THREE.MeshBasicMaterial({
 });
 const water = new THREE.Mesh(waterGeometry, waterMaterial);
 water.position.y = SEA_LEVEL + 0.02; // Slightly above sea level to avoid z-fighting
+water.receiveShadow = false;
 scene.add(water);
 
 // Seabed plane to give depth under oceans and rivers
@@ -559,6 +571,7 @@ const seabedMaterial = new THREE.MeshBasicMaterial({
 });
 const seabed = new THREE.Mesh(seabedGeometry, seabedMaterial);
 seabed.position.y = 0.0; // Seabed at absolute 0
+seabed.receiveShadow = true;
 scene.add(seabed);
 
 function ensurePlaneSegment(index) {
@@ -567,6 +580,8 @@ function ensurePlaneSegment(index) {
   const mesh = new THREE.Mesh(geom, planeMaterial);
   mesh.position.z = -index * PLANE_LENGTH; // Position by segment index
   deformPlane(geom, mesh.position.z); // Apply noise-based deformation
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   scene.add(mesh);
   planeSegments.set(index, mesh);
 }
@@ -591,6 +606,37 @@ function cullAndSpawnPlanes() {
 
 // Seed initial terrain window so something is visible even when paused
 cullAndSpawnPlanes();
+
+// Skydome gradient (simple shader)
+const skyGeo = new THREE.SphereGeometry(5000, 32, 16);
+const skyMat = new THREE.ShaderMaterial({
+  uniforms: {
+    topColor: { value: new THREE.Color(0xbad3ff) },
+    bottomColor: { value: new THREE.Color(0x9fc4e7) }
+  },
+  vertexShader: `
+    varying vec3 vWorldPos;
+    void main(){
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWorldPos = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 topColor;
+    uniform vec3 bottomColor;
+    varying vec3 vWorldPos;
+    void main(){
+      float t = clamp((vWorldPos.y + 2000.0) / 4000.0, 0.0, 1.0);
+      vec3 col = mix(bottomColor, topColor, t);
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+  side: THREE.BackSide,
+  depthWrite: false
+});
+const sky = new THREE.Mesh(skyGeo, skyMat);
+scene.add(sky);
 
 // Fog toggle
 const fogBtn = document.getElementById('toggleFogBtn');
